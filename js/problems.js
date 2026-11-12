@@ -9,16 +9,22 @@
  *
  * generate(section, opts) -> {
  *   section, type, title, promptHTML,
- *   parts:    [{ kind:'num', label, answer, tol, unit, placeholder } | { kind:'choice', label, options, correct }],
+ *   parts:    ALWAYS exactly one part:
+ *             [{ kind:'num', label, answer, tol, unit, placeholder } | { kind:'choice', label, options, correct }],
  *   hints:    [html, ...]   (progressive, last one nearly gives it away)
  *   solution: [html, ...]   (worked steps, final answers in <b>)
  *   desmos, signature, _meta (hidden data used by the tests)
  * }
- * opts: { type, hard, avoid: [signature, ...] }
+ * opts: { type, hard, avoid: [signature, ...] }   hard → picks from the harder calculation types (still 1 part)
  * check(part, raw) -> boolean
  *
+ * Tolerances (the teacher accepts rounding up or down): percents |x − exact| < 1, z-scores ±0.051,
+ * x-values: whole numbers when σ (or b − a) is big enough, else 1 or 2 decimals (normTol / uniTol).
+ *
  * Diagrams are inline SVG strings (no external refs), max 540 x 200, colors for a dark background.
- * HTML uses only the classes: story, data, big, eq, hl, small, good, bad.
+ * Picture choices (shadeArea, shade35, uniInterp) are 150 x 70 inline SVGs with explicit width/height.
+ * HTML uses only the classes: story, data, big, eq, hl, small, good, bad (plus plain table/th/td).
+ * CATEGORY[section][type] is 'calc' or 'interp'; WEIGHTS keep random picks about 60/40.
  */
 (function (root) {
   'use strict';
@@ -191,13 +197,32 @@
     return Math.abs(x - part.answer) <= part.tol + 1e-9;
   }
 
+  // ---- tolerances (teacher: rounding up OR down is fine) ----
+  const PCT_TOL = 0.999; // every percent answer: |x − exact| < 1  (58.33 → 58, 59, 58.3 all pass)
+  const Z_TOL = 0.051; // z-scores: 2-decimal or 1-decimal rounding of the exact value
+  // x-values from a Normal model: whole numbers are fine when σ ≥ 2.5, else 1 or 2 decimals
+  function normTol(v, sd) {
+    if (Math.abs(v) >= 10 && sd >= 2.5) return 0.999;
+    if (sd >= 0.4) return 0.051;
+    return 0.006;
+  }
+  // x-values from U(a, b) (w = b − a)
+  function uniTol(v, w) {
+    if (Math.abs(v) >= 10 && w >= 5) return 0.999;
+    return roundTo(Math.max(0.051, 0.01 * w), 4);
+  }
+  // no listed wrong answer — nor a student's rounding of it — can land inside the tolerance
+  const clearOf = (ans, tol, wrongs) => wrongs.every((w) => !Number.isFinite(w) || Math.abs(w - ans) >= 2 * tol + 0.002);
+
   // =====================================================================
   // SVG helpers (dark background)
   // =====================================================================
   const C = {
     axis: '#e8e4ff', muted: '#b9b3e6', curve: '#9fd3ff', fill: 'rgba(159,211,255,0.12)',
     shade: 'rgba(255,210,63,0.55)', red: '#ff5c5c', dot: '#9fd3ff', bg: '#151228', gold: '#ffd23f',
+    shadeOpt: 'rgba(255,210,63,0.6)',
   };
+  const FONT = 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
   const r1 = (v) => Math.round(v * 10) / 10;
   function svgOpen(W, H, label) {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" ` +
@@ -364,6 +389,94 @@
     return s + '</svg>';
   }
 
+  // ---------------------------------------------------------------------
+  // Small answer-choice pictures (150 × 70). A "spec" describes the shading:
+  //   { t:'L', a }  left of a      { t:'R', a }  right of a
+  //   { t:'B', a, b } between       { t:'O', a, b } outside (both tails)
+  // ---------------------------------------------------------------------
+  const MINI = { W: 150, H: 70, X0: 5, X1: 145, baseY: 48, topY: 5, span: 3.1, labelY: 63, font: 12 };
+  const specCuts = (sp) => (sp.t === 'L' || sp.t === 'R' ? [sp.a] : [sp.a, sp.b]);
+  function specRegions(sp, lo, hi) {
+    if (sp.t === 'L') return [[lo, sp.a]];
+    if (sp.t === 'R') return [[sp.a, hi]];
+    if (sp.t === 'B') return [[sp.a, sp.b]];
+    return [[lo, sp.a], [sp.b, hi]];
+  }
+  const specKey = (sp) => `${sp.t}|${specCuts(sp).map((v) => roundTo(v, 6)).join('|')}`;
+  // label boxes [left, right] for the cut values of a picture, or null if they overlap / leave the picture
+  function miniLabelBoxes(X, cuts, texts) {
+    const boxes = cuts.map((v, i) => {
+      const w = textW(texts[i], MINI.font);
+      return [X(v) - w / 2, X(v) + w / 2];
+    }).sort((p, q) => p[0] - q[0]);
+    for (let i = 0; i < boxes.length; i++) {
+      if (boxes[i][0] < 1 || boxes[i][1] > MINI.W - 1) return null;
+      if (i && boxes[i][0] < boxes[i - 1][1] + 4) return null;
+    }
+    return boxes;
+  }
+  function miniFrame(kind, extra) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${MINI.W}" height="${MINI.H}" viewBox="0 0 ${MINI.W} ${MINI.H}" ` +
+      `font-family="${FONT}" role="img" aria-label="${kind}"${extra || ''}>`;
+  }
+  // o: { mu, sd, spec, fmt(v) -> label }   returns null when the labels would not fit
+  function miniNormalSVG(o) {
+    const { W, X0, X1, baseY, topY, span } = MINI;
+    const xmin = o.mu - span * o.sd, xmax = o.mu + span * o.sd;
+    const X = (v) => X0 + ((v - xmin) / (xmax - xmin)) * (X1 - X0);
+    const Y = (v) => baseY - (baseY - topY) * Math.exp(-0.5 * Math.pow((v - o.mu) / o.sd, 2));
+    const cuts = specCuts(o.spec), texts = cuts.map(o.fmt);
+    if (cuts.some((v) => v <= xmin || v >= xmax) || !miniLabelBoxes(X, cuts, texts)) return null;
+    let s = miniFrame('Normal curve with a shaded region');
+    specRegions(o.spec, xmin, xmax).forEach(([lo, hi]) => {
+      let d = `M${r1(X(lo))} ${baseY}`;
+      for (let i = 0; i <= 40; i++) {
+        const v = lo + (hi - lo) * i / 40;
+        d += ` L${r1(X(v))} ${r1(Y(v))}`;
+      }
+      s += `<path d="${d} L${r1(X(hi))} ${baseY} Z" fill="${C.shadeOpt}" stroke="none"/>`;
+    });
+    let d = '';
+    for (let i = 0; i <= 60; i++) {
+      const v = xmin + (xmax - xmin) * i / 60;
+      d += (i ? ' L' : 'M') + r1(X(v)) + ' ' + r1(Y(v));
+    }
+    s += `<path d="${d}" fill="none" stroke="${C.curve}" stroke-width="2"/>`;
+    s += L(X0, baseY, X1, baseY, C.axis, 1.2);
+    cuts.forEach((v, i) => {
+      s += L(X(v), baseY + 4, X(v), Y(v), C.axis, 1, ' stroke-dasharray="3 2"');
+      s += T(X(v), MINI.labelY, texts[i], { size: MINI.font });
+    });
+    return s + '</svg>';
+  }
+  // o: { a, b, spec, fmt }  uniform density rectangle with shading
+  function miniUniformSVG(o) {
+    const { X0, X1, baseY } = MINI;
+    const w = o.b - o.a, dmin = o.a - 0.12 * w, dmax = o.b + 0.12 * w, topY = 14;
+    const X = (v) => X0 + ((v - dmin) / (dmax - dmin)) * (X1 - X0);
+    const cuts = specCuts(o.spec), texts = cuts.map(o.fmt);
+    if (!miniLabelBoxes(X, cuts, texts)) return null;
+    let s = miniFrame('Uniform density curve with a shaded region');
+    specRegions(o.spec, o.a, o.b).forEach(([lo, hi]) => {
+      s += `<rect x="${r1(X(lo))}" y="${topY}" width="${r1(X(hi) - X(lo))}" height="${baseY - topY}" fill="${C.shadeOpt}" stroke="none"/>`;
+    });
+    s += `<rect x="${r1(X(o.a))}" y="${topY}" width="${r1(X(o.b) - X(o.a))}" height="${baseY - topY}" fill="none" stroke="${C.curve}" stroke-width="2"/>`;
+    s += L(X0, baseY, X1, baseY, C.axis, 1.2);
+    cuts.forEach((v, i) => {
+      s += L(X(v), baseY + 4, X(v), topY, C.axis, 1, ' stroke-dasharray="3 2"');
+      s += T(X(v), MINI.labelY, texts[i], { size: MINI.font });
+    });
+    return s + '</svg>';
+  }
+  // Build 4 picture options from specs (first = correct). Returns null if any picture fails / duplicates.
+  function pictureOptions(specs, draw) {
+    const svgs = specs.map(draw);
+    if (svgs.some((x) => !x)) return null;
+    if (new Set(specs.map(specKey)).size !== specs.length) return null;
+    const order = shuffle(specs.map((_, i) => i));
+    return { options: order.map((i) => svgs[i]), specs: order.map((i) => specs[i]), correct: order.indexOf(0) };
+  }
+
   // =====================================================================
   // problem assembly
   // =====================================================================
@@ -397,6 +510,24 @@
       desmos: !!o.desmos, signature: o.signature, _meta: o.meta,
     };
   }
+  /**
+   * Single multiple-choice problem.
+   * o: { section, type, title, top, q, label, right, wrong:[...] | (options+correct), hints, sol, meta (one meta part), signature, postSol }
+   */
+  function choiceProblem(o) {
+    let options = o.options, correct = o.correct;
+    if (!options) {
+      options = shuffle([o.right].concat(o.wrong));
+      correct = options.indexOf(o.right);
+    }
+    if (o.keepOrder) { options = [o.right].concat(o.wrong); correct = 0; }
+    return compose({
+      section: o.section, type: o.type, title: o.title, top: o.top,
+      subs: [{ q: o.q, parts: [{ kind: 'choice', label: o.label || 'Choose one:', options, correct }], hints: o.hints, sol: o.sol }],
+      postSol: o.postSol, meta: Object.assign({}, o.metaTop || {}, { parts: [o.meta] }), signature: o.signature,
+    });
+  }
+  const distinctAll = (arr) => new Set(arr).size === arr.length;
 
   // =====================================================================
   // 3.1 PERCENTILES
@@ -466,21 +597,23 @@
 
   // --- percentile OF a value (answer = c/n·100) ---
   function pctSub(o) {
-    // o: { q, vf, c, n, label, solCount (html), noun }
+    // o: { q, vf, c, n, label, solCount (html), countHint }
     const pct = 100 * o.c / o.n;
-    const rounded = Math.round(pct);
+    const lo = Math.floor(pct + 1e-9), whole = Math.abs(pct - Math.round(pct)) < 1e-9;
     return {
       q: o.q,
-      parts: [{ kind: 'num', label: o.label, unit: 'th percentile', answer: roundTo(pct, 2), tol: 0.5, placeholder: 'e.g. 40' }],
+      parts: [{ kind: 'num', label: o.label, unit: 'th percentile', answer: roundTo(pct, 4), tol: PCT_TOL, placeholder: 'e.g. 40' }],
       hints: [
         `A value’s <b>percentile</b> is the percent of the data that is <b>strictly less than</b> it. Don’t count ${o.vf} itself (or anything tied with it).`,
         `${o.countHint} There are <b>${o.n}</b> values in all.`,
-        `There are <b>${o.c}</b> values below ${o.vf}. Compute ${eq(`${o.c} ÷ ${o.n} × 100`)}.`,
+        `There are <b>${o.c}</b> values below ${o.vf}. Compute ${eq(`${o.c} ÷ ${o.n} × 100`)}${whole ? '' : ' and round down to a whole number'}.`,
       ],
       sol: [
         o.solCount,
         `${eq(`${o.c} ÷ ${o.n} ${eqSign(o.c / o.n, 4)} ${trim(o.c / o.n, 4)}`)} → ${trim(pct, 2)}%`,
-        `${o.vf} is at about the <b>${ord(rounded)} percentile</b>: about ${rounded}% of the data values are less than ${o.vf}.`,
+        whole
+          ? `${o.vf} is at the <b>${ord(lo)} percentile</b>: ${lo}% of the data values are less than ${o.vf}.`
+          : `${o.vf} is at about the <b>${ord(lo)} percentile</b> (rounding down; ${ord(lo + 1)} is fine too): about ${trim(pct, 1)}% of the data values are less than ${o.vf}.`,
       ],
     };
   }
@@ -504,47 +637,38 @@
     };
   }
 
-  function gen31list(type, opts) {
+  function gen31list(type) {
     for (;;) {
       const ctx = pick(LIST_CTX), n = int(10, 20), data = listData(ctx, n);
       const cands = uniqueIdx(data, 2, n - 2);
       if (cands.length < 3) continue;
       const fv = (v) => fmt(v, ctx.dec);
       const dataHTML = `<div class="data">${data.map(fv).join(', ')}</div>`;
-      const subs = [], metaParts = [];
-      const kinds = type === 'pctOfValue' ? (opts.hard ? ['pct', 'val'] : ['pct']) : (opts.hard ? ['val', 'pct'] : ['val']);
-      const used = [];
-      for (const kind of kinds) {
-        const pool = cands.filter((i) => used.every((u) => Math.abs(u - i) >= 2));
-        if (!pool.length) break;
-        const i = pick(pool);
-        used.push(i);
-        const v = data[i], vf = fv(v);
-        if (kind === 'pct') {
-          subs.push(pctSub({
-            q: `Find the percentile for ${ctx.about(vf)}.`, vf, c: i, n, label: `${vf} is at the`, noun: 'values',
-            countHint: `Count how many values in the list are less than ${vf}.`,
-            solCount: `Values below ${vf}: ${listHL(data, ctx.dec, i, i)} → <b>${i}</b> of the ${n} values.`,
-          }));
-          metaParts.push({ q: 'pct', value: v });
-        } else {
-          const k = Math.round(100 * i / n);
-          subs.push(valSub({
-            q: `Which ${ctx.word} is at the <b>${ord(k)} percentile</b>?`, k, n, j: i, v, vf,
-            label: `${cap(ctx.word)} =`, unit: ctx.unit,
-            countHint: `Count ${i} values in from the smallest. The answer is the <b>next</b> value (value #${i + 1} in order).`,
-            solFind: `${listHL(data, ctx.dec, i, i)} → the value with exactly ${i} values below it is <b>${vf}</b>.`,
-          }));
-          metaParts.push({ q: 'val', k });
-        }
+      const i = pick(cands), v = data[i], vf = fv(v);
+      let sub, mp;
+      if (type === 'pctOfValue') {
+        sub = pctSub({
+          q: `Find the percentile for ${ctx.about(vf)}.`, vf, c: i, n, label: `${vf} is at the`,
+          countHint: `Count how many values in the list are less than ${vf}.`,
+          solCount: `Values below ${vf}: ${listHL(data, ctx.dec, i, i)} → <b>${i}</b> of the ${n} values.`,
+        });
+        mp = { q: 'pct', value: v };
+      } else {
+        const k = Math.round(100 * i / n);
+        sub = valSub({
+          q: `Which ${ctx.word} is at the <b>${ord(k)} percentile</b>?`, k, n, j: i, v, vf,
+          label: `${cap(ctx.word)} =`, unit: ctx.unit,
+          countHint: `Count ${i} values in from the smallest. The answer is the <b>next</b> value (value #${i + 1} in order).`,
+          solFind: `${listHL(data, ctx.dec, i, i)} → the value with exactly ${i} values below it is <b>${vf}</b>.`,
+        });
+        mp = { q: 'val', k };
       }
-      if (subs.length !== kinds.length) continue;
       return compose({
         section: '3.1', type,
         title: type === 'pctOfValue' ? 'Find the percentile' : 'Value at a percentile',
         top: `<p class="story">${ctx.intro(n)}</p>${dataHTML}`,
-        subs, meta: { data, parts: metaParts },
-        signature: `3.1|${type}|${ctx.key}|${data.join(',')}|${used.join(',')}`,
+        subs: [sub], meta: { data, parts: [mp] },
+        signature: `3.1|${type}|${ctx.key}|${data.join(',')}|${i}`,
       });
     }
   }
@@ -624,53 +748,45 @@
     return groups.join(', ');
   }
 
-  function gen31dot(type, opts) {
+  function gen31dot(type) {
     for (;;) {
       const ctx = pick(DOT_CTX);
       const D = dotData(ctx);
       const { data, n } = D;
       const ex = ctx.extra ? ctx.extra() : [];
-      const nm = names(2);
-      const dv = distinctVals(data);
-      const okVals = dv.filter((v) => {
+      const nm = pick(NAMES);
+      const okVals = distinctVals(data).filter((v) => {
         const c = countBelow(data, v);
         return c >= 2 && c <= n - 2;
       });
       if (okVals.length < 3) continue;
-      const kinds = type === 'dotplot' ? (opts.hard ? ['pct', 'val'] : ['pct']) : (opts.hard ? ['val', 'pct'] : ['val']);
-      const subs = [], metaParts = [];
-      let red = null, ans = null;
-      for (const kind of kinds) {
-        const pool = okVals.filter((v) => v !== red && v !== ans);
-        const v = pick(pool), c = countBelow(data, v), vf = trim(v, 2);
-        if (kind === 'pct') {
-          red = v;
-          subs.push(pctSub({
-            q: ctx.redQ(nm[0], vf, ex), vf, c, n, label: 'The red dot is at the', noun: ctx.noun,
-            countHint: `Count the dots to the <b>left</b> of the red dot’s stack (smaller values only).`,
-            solCount: `Dots to the left of ${vf}: <span class="small">${belowBreakdown(data, v)}</span> → <b>${c}</b> of the ${n} dots.`,
-          }));
-          metaParts.push({ q: 'pct', value: v });
-        } else {
-          ans = v;
-          const k = Math.round(100 * c / n);
-          subs.push(valSub({
-            q: ctx.valQ(nm[1], k, ex), k, n, j: c, v, vf, label: ctx.label, unit: ctx.unit,
-            countHint: `Count ${c} dots in from the left (smallest values first). The <b>next</b> dot’s value is the answer.`,
-            solFind: `Counting from the left: <span class="small">${belowBreakdown(data, v)}</span> → that is ${c} dots, so the next value, <b>${vf}</b>, has exactly ${c} values below it.`,
-          }));
-          metaParts.push({ q: 'val', k });
-        }
+      const v = pick(okVals), c = countBelow(data, v), vf = trim(v, 2);
+      let sub, mp;
+      if (type === 'dotplot') {
+        sub = pctSub({
+          q: ctx.redQ(nm, vf, ex), vf, c, n, label: 'The red dot is at the',
+          countHint: `Count the dots to the <b>left</b> of the red dot’s stack (smaller values only).`,
+          solCount: `Dots to the left of ${vf}: <span class="small">${belowBreakdown(data, v)}</span> → <b>${c}</b> of the ${n} dots.`,
+        });
+        mp = { q: 'pct', value: v };
+      } else {
+        const k = Math.round(100 * c / n);
+        sub = valSub({
+          q: ctx.valQ(nm, k, ex), k, n, j: c, v, vf, label: ctx.label, unit: ctx.unit,
+          countHint: `Count ${c} dots in from the left (smallest values first). The <b>next</b> dot’s value is the answer.`,
+          solFind: `Counting from the left: <span class="small">${belowBreakdown(data, v)}</span> → that is ${c} dots, so the next value, <b>${vf}</b>, has exactly ${c} values below it.`,
+        });
+        mp = { q: 'val', k };
       }
-      const svg = dotplotSVG({ data, step: ctx.step, lo: D.lo, hi: D.hi, highlight: red, caption: ctx.caption });
-      const solSvg = ans !== null ? dotplotSVG({ data, step: ctx.step, lo: D.lo, hi: D.hi, highlight: ans, caption: ctx.caption }) : null;
+      const isPct = type === 'dotplot';
+      const svg = dotplotSVG({ data, step: ctx.step, lo: D.lo, hi: D.hi, highlight: isPct ? v : null, caption: ctx.caption });
       return compose({
         section: '3.1', type,
-        title: type === 'dotplot' ? 'Read the dotplot' : 'Dotplot detective',
+        title: isPct ? 'Read the dotplot' : 'Dotplot detective',
         top: `<p class="story">${ctx.story(n)}</p>${svg}`,
-        subs, meta: { data, parts: metaParts },
-        postSol: solSvg && red === null ? [`The ${ord(metaParts[0].k)}-percentile value, marked in red:${solSvg}`] : null,
-        signature: `3.1|${type}|${ctx.key}|${data.join(',')}|${red}|${ans}`,
+        subs: [sub], meta: { data, parts: [mp] },
+        postSol: isPct ? null : [`The ${ord(mp.k)}-percentile value, marked in red:${dotplotSVG({ data, step: ctx.step, lo: D.lo, hi: D.hi, highlight: v, caption: ctx.caption })}`],
+        signature: `3.1|${type}|${ctx.key}|${data.join(',')}|${v}`,
       });
     }
   }
@@ -779,9 +895,160 @@
     });
   }
 
-  function gen31(type, opts) {
-    if (type === 'pctOfValue' || type === 'valueAtPct') return gen31list(type, opts);
-    if (type === 'dotplot' || type === 'dotplotValue') return gen31dot(type, opts);
+  // --- percent correct vs. percentile ---
+  const TESTS = ['chemistry test', 'history test', 'math final', 'Spanish quiz', 'biology test', 'spell-casting exam', 'potions quiz'];
+  function gen31pctVsPercent() {
+    for (;;) {
+      if (chance(0.6)) {
+        const nm = pick(NAMES), test = pick(TESTS), pc = int(55, 97), k = int(10, 94);
+        if (Math.min(Math.abs(pc - k), Math.abs(pc - (100 - k)), Math.abs(k - (100 - k))) < 6) continue;
+        const right = `${k}% of the class scored lower than ${nm}.`;
+        return choiceProblem({
+          section: '3.1', type: 'pctVsPercent', title: 'Percent vs. percentile',
+          top: `<p class="story">${nm} answered ${hl(pc + '%')} of the questions on a ${test} correctly. That score put ${nm} at the ${hl(ord(k) + ' percentile')} of the class.</p>`,
+          q: 'Which statement is correct?',
+          right,
+          wrong: [`${pc}% of the class scored lower than ${nm}.`, `${nm} answered ${k}% of the questions correctly.`, `${100 - k}% of the class scored lower than ${nm}.`],
+          hints: [
+            'Percent correct and percentile are different. <b>Percent correct</b> compares you to the test: how many questions you got right.',
+            'A <b>percentile</b> compares you to the other students: the percent of students who scored <b>lower</b> than you.',
+            `${nm} is at the ${ord(k)} percentile, so ${k}% of the class scored lower.`,
+          ],
+          sol: [
+            `${pc}% is ${nm}’s percent correct. It only tells how many questions ${nm} got right.`,
+            `The ${ord(k)} percentile means ${k}% of the class scored lower than ${nm}.`,
+            `Correct: <b>${right}</b>`,
+          ],
+          meta: { q: 'pctVsPercent', k, pc },
+          signature: `3.1|pctVsPercent|A|${nm}|${pc}|${k}`,
+        });
+      }
+      // two students, two different classes: higher percent correct does not mean higher percentile
+      const nm = names(2), t = shuffle(TESTS).slice(0, 2);
+      const pc = [int(80, 97), 0], k = [int(25, 72), 0];
+      pc[1] = int(58, pc[0] - 7);
+      k[1] = int(k[0] + 12, 95);
+      if (chance(0.2)) { const tmp = k[0]; k[0] = k[1]; k[1] = tmp; } // sometimes the raw percent agrees
+      const P = shuffle([0, 1]).map((i, j) => ({ n: nm[j], pc: pc[i], k: k[i], t: t[j] }));
+      const best = P[0].k > P[1].k ? 0 : 1;
+      const options = [P[0].n, P[1].n, 'They did equally well compared with their classes.'];
+      return choiceProblem({
+        section: '3.1', type: 'pctVsPercent', title: 'Percent vs. percentile',
+        top: `<p class="story">${P[0].n} got ${P[0].pc}% correct on a ${P[0].t}. That is at the ${hl(ord(P[0].k) + ' percentile')} of ${P[0].n}’s class.</p>` +
+          `<p class="story">${P[1].n} got ${P[1].pc}% correct on a ${P[1].t}. That is at the ${hl(ord(P[1].k) + ' percentile')} of ${P[1].n}’s class.</p>`,
+        q: 'Who scored higher than a larger percent of their own class?',
+        options, correct: best,
+        hints: [
+          'Percent correct tells how many questions someone got right. It does <b>not</b> compare them with their class.',
+          'A percentile is the percent of the class that scored <b>lower</b>. Compare the percentiles, not the percents correct.',
+          `${P[0].n}: ${P[0].k}% of the class scored lower. ${P[1].n}: ${P[1].k}% of the class scored lower.`,
+        ],
+        sol: [
+          `${P[0].n} beat ${P[0].k}% of their class; ${P[1].n} beat ${P[1].k}% of theirs.`,
+          `So <b>${P[best].n}</b> scored higher than a larger percent of their class${P[best].pc < P[1 - best].pc ? `, even with a lower percent correct (${P[best].pc}% vs. ${P[1 - best].pc}%)` : ''}.`,
+        ],
+        meta: { q: 'pctWho', ks: [P[0].k, P[1].k] },
+        signature: `3.1|pctVsPercent|B|${P.map((x) => x.n + x.pc + '/' + x.k).join('|')}`,
+      });
+    }
+  }
+
+  // --- who is at the higher percentile in their own group? (two small data sets) ---
+  const TWO_CTX = [
+    { ctx: 'test', groups: ['Period 2', 'Period 3', 'Period 5', 'Period 6'], did: (nm, v, g) => `${nm} scored ${v} on the test in ${g}` },
+    { ctx: 'quiz', groups: ['Period 1', 'Period 4', 'Period 5', 'Period 7'], did: (nm, v, g) => `${nm} scored ${v} on the quiz in ${g}` },
+    { ctx: 'shotput', groups: ['1st-period gym', '4th-period gym', '6th-period gym'], did: (nm, v, g) => `${nm} threw ${v} feet in ${g}` },
+    { ctx: 'jump', groups: ['the Tigers', 'the Hawks', 'the Wolves'], did: (nm, v, g) => `${nm} jumped ${v} meters for ${g}` },
+    { ctx: 'coins', groups: ['the Iron Guild', 'the Frost Guild', 'the Ember Guild'], did: (nm, v, g) => `${nm} found ${v} coins with ${g}` },
+    { ctx: 'plants', groups: ['Garden A', 'Garden B', 'Garden C'], did: (nm, v, g) => `${nm}’s bean plant grew to ${v} cm in ${g}` },
+  ];
+  function gen31higherPct() {
+    for (let tries = 0; ; tries++) {
+      const T = pick(TWO_CTX), ctx = LIST_CTX.find((c) => c.key === T.ctx);
+      const gs = shuffle(T.groups).slice(0, 2), nm = names(2);
+      const fv = (v) => fmt(v, ctx.dec);
+      const P = [0, 1].map(() => {
+        const n = int(8, 12), data = listData(ctx, n);
+        const cands = uniqueIdx(data, 1, n - 2);
+        const i = cands.length ? pick(cands) : -1;
+        return { n, data, i, x: data[i], pct: 100 * i / n };
+      });
+      if (P.some((q) => q.i < 0) || Math.abs(P[0].pct - P[1].pct) < 8) continue;
+      if (P[0].x === P[1].x) continue;
+      const best = P[0].pct > P[1].pct ? 0 : 1;
+      const rawBest = P[0].x > P[1].x ? 0 : 1;
+      if (tries < 40 && rawBest === best && chance(0.7)) continue; // usually the bigger raw value is NOT the higher percentile
+      const line = (q, g) => `<b>${g}:</b> ${q.data.map((v, j) => (j === q.i ? `<b>[${fv(v)}]</b>` : fv(v))).join(', ')}`;
+      return choiceProblem({
+        section: '3.1', type: 'higherPct', title: 'Higher percentile?',
+        top: `<p class="story">${T.did(nm[0], fv(P[0].x), gs[0])}, and ${T.did(nm[1], fv(P[1].x), gs[1])}. All the results:</p>` +
+          `<div class="data">${line(P[0], gs[0])}<br>${line(P[1], gs[1])}</div>`,
+        q: 'Who is at the <b>higher percentile</b> in their own group?',
+        options: [nm[0], nm[1], 'They are at the same percentile.'], correct: best,
+        hints: [
+          'Find each person’s percentile in <b>their own</b> group: count the values strictly less than theirs, then divide by that group’s size.',
+          `${nm[0]}: ${P[0].i} of the ${P[0].n} values ${P[0].i === 1 ? 'is' : 'are'} below ${fv(P[0].x)}. ${nm[1]}: ${P[1].i} of the ${P[1].n} values ${P[1].i === 1 ? 'is' : 'are'} below ${fv(P[1].x)}.`,
+          `${nm[0]}: ${eq(`${P[0].i} ÷ ${P[0].n} ≈ ${trim(P[0].pct, 1)}%`)}. ${nm[1]}: ${eq(`${P[1].i} ÷ ${P[1].n} ≈ ${trim(P[1].pct, 1)}%`)}.`,
+        ],
+        sol: [
+          `${nm[0]}: ${P[0].i} of ${P[0].n} below → ${eq(`${P[0].i} ÷ ${P[0].n} ≈ ${trim(P[0].pct, 1)}%`)}`,
+          `${nm[1]}: ${P[1].i} of ${P[1].n} below → ${eq(`${P[1].i} ÷ ${P[1].n} ≈ ${trim(P[1].pct, 1)}%`)}`,
+          `<b>${nm[best]}</b> is at the higher percentile${rawBest !== best ? `, even though ${nm[rawBest]}’s value is bigger` : ''}.`,
+        ],
+        meta: { q: 'higherPct', groups: P.map((q) => ({ data: q.data, x: q.x })) },
+        signature: `3.1|higherPct|${T.ctx}|${P.map((q) => q.data.join(',') + '@' + q.x).join('|')}`,
+      });
+    }
+  }
+
+  // --- what happens to a percentile if ... ---
+  const WHATIF = [
+    { key: 'newLow', effect: 'up', dc: 1, dn: 1, text: (nm, v, o) => `A new student joins the class, takes the quiz, and scores ${o.low}, which is lower than ${nm}’s ${v}.`,
+      why: 'One more student is below, and the class grew by one.' },
+    { key: 'newHigh', effect: 'down', dc: 0, dn: 1, text: (nm, v, o) => `A new student joins the class, takes the quiz, and scores ${o.high}, which is higher than ${nm}’s ${v}.`,
+      why: 'The same number of students are below, but the class is bigger.' },
+    { key: 'bonus', effect: 'same', dc: 0, dn: 0, text: (nm) => `The teacher adds 5 bonus points to <b>everyone’s</b> score, including ${nm}’s.`,
+      why: 'Everyone moves up together, so the same students are still below.' },
+    { key: 'topFix', effect: 'same', dc: 0, dn: 0, text: (nm, v, o) => `A grading fix changes the highest score in the class from ${o.top} to 100.`,
+      why: 'The top score was already above, and it is still above.' },
+    { key: 'passes', effect: 'down', dc: -1, dn: 0, text: (nm, v, o) => `A student who scored ${o.low} retakes the quiz and now scores ${o.high}, higher than ${nm}.`,
+      why: 'One student who was below is now above, and the class size did not change.' },
+    { key: 'drops', effect: 'up', dc: 1, dn: 0, text: (nm, v, o) => `A grading error is fixed: a student’s score changes from ${o.high} to ${o.low}, now lower than ${nm}’s.`,
+      why: 'One student who was above is now below, and the class size did not change.' },
+  ];
+  const EFFECT_OPTS = { up: 'It goes up.', down: 'It goes down.', same: 'It stays the same.' };
+  function gen31whatIf() {
+    const nm = pick(NAMES), n = pick([20, 25]), c = int(5, n - 5), k = 100 * c / n;
+    const v = int(70, 88), sc = pick(WHATIF);
+    const o = { low: v - int(4, 15), high: Math.min(99, v + int(3, 9)), top: int(95, 99) };
+    const c2 = c + sc.dc, n2 = n + sc.dn, k2 = 100 * c2 / n2;
+    const options = [EFFECT_OPTS.up, EFFECT_OPTS.down, EFFECT_OPTS.same]; // natural fixed order
+    return choiceProblem({
+      section: '3.1', type: 'whatIf', title: 'What happens to the percentile?',
+      top: `<p class="story">${nm} scored ${v} on a quiz. ${c} of the ${n} students in the class scored lower, so ${nm} is at the ${hl(ord(k) + ' percentile')}.</p>` +
+        `<p>${sc.text(nm, v, o)}</p>`,
+      q: `What happens to ${nm}’s percentile?`,
+      options, correct: options.indexOf(EFFECT_OPTS[sc.effect]),
+      hints: [
+        `${nm}’s percentile = (number of students <b>below</b> ${nm}) ÷ (number of students in the class).`,
+        'Ask two questions: Does the number of students below change? Does the class size change?',
+        `After the change: ${c2} students below out of ${n2}.`,
+      ],
+      sol: [
+        `Before: ${eq(`${c} ÷ ${n} = ${trim(k, 2)}%`)}. After: ${eq(`${c2} ÷ ${n2} ${eqSign(k2, 2)} ${trim(k2, 2)}%`)}.`,
+        `${sc.why} So the percentile <b>${sc.effect === 'same' ? 'stays the same' : 'goes ' + sc.effect}</b>.`,
+      ],
+      meta: { q: 'whatIf', c, n, dc: sc.dc, dn: sc.dn, effect: sc.effect },
+      signature: `3.1|whatIf|${sc.key}|${nm}|${n}|${c}|${v}`,
+    });
+  }
+
+  function gen31(type) {
+    if (type === 'pctOfValue' || type === 'valueAtPct') return gen31list(type);
+    if (type === 'dotplot' || type === 'dotplotValue') return gen31dot(type);
+    if (type === 'pctVsPercent') return gen31pctVsPercent();
+    if (type === 'higherPct') return gen31higherPct();
+    if (type === 'whatIf') return gen31whatIf();
     return gen31interp();
   }
 
@@ -861,15 +1128,19 @@
     const W = n(w);
     const pctLine = (P) => `${eqSign(P, 2) === '=' ? '' : '≈ '}<b>${trim(P, 2)}%</b>`;
     if (kind === 'less' || kind === 'greater') {
-      const xs = uniGrid(ctx, a, b).filter((x) => Math.abs(100 * (x - a) / w - 50) >= 5);
-      const x = pick(xs);
       const isLess = kind === 'less';
+      // wrong answers a student might give: forgetting to subtract a, or dividing by b
+      const wrongs = (x) => (isLess ? [100 * x / b, 100 * x / w] : [100 * (b - x) / b]).concat([100 - 100 * (isLess ? x - a : b - x) / w]);
+      const xs = uniGrid(ctx, a, b).filter((x) => Math.abs(100 * (x - a) / w - 50) >= 5 &&
+        (a === 0 || clearOf(100 * (isLess ? x - a : b - x) / w, PCT_TOL, wrongs(x))));
+      if (!xs.length) return null;
+      const x = pick(xs);
       const wid = isLess ? x - a : b - x;
       const P = 100 * wid / w;
       const widExpr = isLess ? `${n(x)} − ${n(a)}` : `${n(b)} − ${n(x)}`;
       return {
         q: `What percent of the time will ${ctx.subj} ${isLess ? ctx.lt(f(x)) : ctx.gt(f(x))}?`,
-        parts: [{ kind: 'num', label: 'Percent =', unit: '%', answer: roundTo(P, 2), tol: 0.5 }],
+        parts: [{ kind: 'num', label: 'Percent =', unit: '%', answer: roundTo(P, 4), tol: PCT_TOL }],
         hints: [
           `Shade the part of the rectangle ${isLess ? `to the <b>left</b> of ${f(x)} (from ${f(a)} to ${f(x)})` : `to the <b>right</b> of ${f(x)} (from ${f(x)} to ${f(b)})`}. Its width is ${eq(`${widExpr} = ${n(wid)}`)}.`,
           `Area = width × height = ${eq(`${n(wid)} × 1/${W} = ${n(wid)} ÷ ${W}`)}. Change that decimal to a percent.`,
@@ -885,11 +1156,15 @@
     if (kind === 'between') {
       const g = uniGrid(ctx, a, b);
       let x1, x2;
-      do { x1 = pick(g); x2 = pick(g); } while (!(x2 - x1 >= 0.15 * w && x2 - x1 <= 0.85 * w));
+      let tries = 0;
+      do {
+        x1 = pick(g); x2 = pick(g);
+        if (++tries > 200) return null;
+      } while (!(x2 - x1 >= 0.15 * w && x2 - x1 <= 0.85 * w && (a === 0 || clearOf(100 * (x2 - x1) / w, PCT_TOL, [100 * (x2 - x1) / b]))));
       const wid = x2 - x1, P = 100 * wid / w;
       return {
         q: `What percent of the time will ${ctx.subj} ${ctx.btw(f(x1), f(x2))}?`,
-        parts: [{ kind: 'num', label: 'Percent =', unit: '%', answer: roundTo(P, 2), tol: 0.5 }],
+        parts: [{ kind: 'num', label: 'Percent =', unit: '%', answer: roundTo(P, 4), tol: PCT_TOL }],
         hints: [
           `Shade the part of the rectangle from ${f(x1)} to ${f(x2)}. Its width is ${eq(`${n(x2)} − ${n(x1)} = ${n(wid)}`)}.`,
           `Area = width × height = ${eq(`${n(wid)} × 1/${W} = ${n(wid)} ÷ ${W}`)}. Change that decimal to a percent.`,
@@ -906,13 +1181,15 @@
       const ks = [];
       for (let k = 5; k <= 95; k += 5) {
         const v = a + k * w / 100;
-        if (k !== 50 && Math.abs(roundTo(v, 2) - v) < 1e-9) ks.push(k);
+        // wrong answers: k% of b (ignoring a), or the wrong tail
+        if (k !== 50 && Math.abs(roundTo(v, 2) - v) < 1e-9 && clearOf(v, uniTol(v, w), [k * b / 100, a + (100 - k) * w / 100])) ks.push(k);
       }
+      if (!ks.length) return null;
       const k = pick(ks);
       const prod = k * w / 100, v = a + prod;
       return {
         q: `Find the ${ord(k)} percentile of the ${ctx.measurePl}.`,
-        parts: [{ kind: 'num', label: `${ord(k)} percentile =`, unit: ctx.unit, answer: roundTo(v, 4), tol: 0.011 }],
+        parts: [{ kind: 'num', label: `${ord(k)} percentile =`, unit: ctx.unit, answer: roundTo(v, 4), tol: uniTol(v, w) }],
         hints: [
           `The ${ord(k)} percentile is the value with <b>${k}%</b> of the area to its <b>left</b>. So the shaded width × 1/${W} must equal ${trim(k / 100, 2)}.`,
           `Width = ${eq(`${trim(k / 100, 2)} × ${W} = ${n(prod)}`)}. Start at ${f(a)} and go ${n(prod)} to the right.`,
@@ -929,7 +1206,7 @@
       const m = (a + b) / 2;
       return {
         q: `What is the mean (average) of the ${ctx.measurePl}?`,
-        parts: [{ kind: 'num', label: 'Mean =', unit: ctx.unit, answer: roundTo(m, 4), tol: 0.011 }],
+        parts: [{ kind: 'num', label: 'Mean =', unit: ctx.unit, answer: roundTo(m, 4), tol: uniTol(m, w) }],
         hints: [
           'A uniform distribution is perfectly symmetric, so the mean is the balance point: right in the <b>middle</b> of the rectangle.',
           `Mean = ${eq(`(${n(a)} + ${n(b)}) ÷ 2`)}`,
@@ -945,7 +1222,7 @@
     const h = 1 / w;
     return {
       q: 'What is the <b>height</b> of the density curve? (Give a decimal.)',
-      parts: [{ kind: 'num', label: 'Height =', unit: '', answer: roundTo(h, 4), tol: h >= 0.05 - 1e-9 ? 0.005 : Math.max(0.0005, 0.03 / w) }],
+      parts: [{ kind: 'num', label: 'Height =', unit: '', answer: roundTo(h, 6), tol: h >= 0.05 - 1e-9 ? 0.006 : Math.max(0.0005, 0.03 / w) }],
       hints: [
         `The total area under a density curve is always <b>1</b>. This rectangle is ${eq(`${n(b)} − ${n(a)} = ${W}`)} wide.`,
         `Width × height = 1, so ${eq(`height = 1 ÷ ${W}`)}.`,
@@ -958,23 +1235,18 @@
     };
   }
 
-  function gen32(type, opts) {
-    const ctx = pick(UNI_CTX);
-    const ab = pick(ctx.params), a = ab[0], b = ab[1], w = b - a;
+  function gen32calc(type) {
+    let ctx, a, b, w, sub;
+    do {
+      ctx = pick(UNI_CTX);
+      const ab = pick(ctx.params);
+      a = ab[0]; b = ab[1]; w = b - a;
+      sub = uniSub(type, ctx, a, b);
+    } while (!sub);
     const f = (v) => trim(v, 4) + (ctx.deg ? '°' : '');
-    const kinds = [type];
-    if (opts.hard) {
-      const extra = {
-        less: ['percentile', 'mean'], greater: ['percentile', 'mean'], between: ['percentile', 'mean'],
-        percentile: ['less', 'greater', 'between'], mean: ['percentile', 'between'], height: ['less', 'between', 'percentile'],
-      }[type];
-      kinds.push(pick(extra));
-      if (type !== 'height' && type !== 'mean' && chance(0.4)) kinds.push(kinds.indexOf('mean') < 0 ? 'mean' : 'percentile');
-    }
-    const subs = kinds.map((k) => uniSub(k, ctx, a, b));
-    const hasHeight = kinds.indexOf('height') >= 0;
+    const hasHeight = type === 'height';
     const HT = heightText(w);
-    const shaded = subs.find((s) => s.shade);
+    const shaded = sub.shade ? sub : null;
     const diag = (shadeSub, sol) => uniformSVG({
       a, b, f, caption: ctx.caption, heightText: hasHeight && !sol ? 'height = ?' : `height = ${HT}`,
       shade: shadeSub ? shadeSub.shade : null,
@@ -983,22 +1255,218 @@
     const h1 = hasHeight
       ? `Sketch the density curve: a flat rectangle from ${f(a)} to ${f(b)}.${diag(null, false)}`
       : `Sketch the density curve: a rectangle from ${f(a)} to ${f(b)} with height ${eq(`1 ÷ (${trim(b)} − ${trim(a)}) = ${HT}`)}, so the total area is 1. <b>Area = probability.</b>${diag(null, false)}`;
-    const post = shaded ? `${diag(shaded, true)}` : null;
     const p = compose({
       section: '3.2', type, title: {
         height: 'Height of the density curve', less: 'Uniform: less than', greater: 'Uniform: more than',
         between: 'Uniform: in between', percentile: 'Uniform percentile', mean: 'Mean of a uniform distribution',
       }[type],
       top: `<p class="story">${ctx.story(f(a), f(b), a, b)}</p>`,
-      subs, preHints: [h1],
+      subs: [sub], preHints: [h1],
       preSol: hasHeight ? [] : [`Density curve: a rectangle from ${f(a)} to ${f(b)}, height = ${eq(`1 ÷ ${trim(w)} = ${HT}`)}.`],
-      postSol: post ? [post] : null,
-      meta: { a, b, parts: subs.map((s) => s.meta) },
-      signature: `3.2|${type}|${ctx.key}|${a}|${b}|${subs.map((s) => s.sig).join('|')}`,
+      postSol: shaded ? [diag(shaded, true)] : null,
+      meta: { a, b, parts: [sub.meta] },
+      signature: `3.2|${type}|${ctx.key}|${a}|${b}|${sub.sig}`,
     });
     // put the shaded diagram on the second hint (the setup hint)
     if (shaded && p.hints.length >= 2) p.hints[1] += diag(shaded, false);
     return p;
+  }
+  // ---- 3.2 interpretation / multiple choice ----
+  function uniPick() {
+    const ctx = pick(UNI_CTX), ab = pick(ctx.params), a = ab[0], b = ab[1];
+    const f = (v) => trim(v, 4) + (ctx.deg ? '°' : '');
+    const U = (v) => f(v) + (ctx.unit && !ctx.deg ? ' ' + ctx.unit : '');
+    return { ctx, a, b, w: b - a, f, U, story: `<p class="story">${ctx.story(f(a), f(b), a, b)}</p>` };
+  }
+  const uniSetup = (u) => `The density curve is a rectangle from ${u.f(u.a)} to ${u.f(u.b)} with height ${eq(`1 ÷ ${trim(u.w)} = ${heightText(u.w)}`)}. <b>Area = probability.</b>`;
+
+  function gen32interp() {
+    for (;;) {
+      const u = uniPick(), { ctx, a, b, w, f } = u;
+      const g = uniGrid(ctx, a, b);
+      const variant = pick(['words', 'words', 'picture', 'compare']);
+      if (variant === 'words') {
+        const x = pick(g), isLess = chance(0.5);
+        const P = roundTo(100 * (isLess ? x - a : b - x) / w, 4);
+        if (Math.abs(P - 50) < 8) continue;
+        const ph = isLess ? ctx.lt(f(x)) : ctx.gt(f(x)), op = isLess ? ctx.gt(f(x)) : ctx.lt(f(x));
+        const ps = trim(P, 2), right = `About ${ps}% of the time, ${ctx.subj} will ${ph}.`;
+        const wrong = [`About ${ps}% of the time, ${ctx.subj} will ${op}.`, `About ${trim(100 - P, 2)}% of the time, ${ctx.subj} will ${ph}.`,
+          `About ${trim(P / 100, 4)}% of the time, ${ctx.subj} will ${ph}.`];
+        if (!distinctAll([right].concat(wrong))) continue;
+        return choiceProblem({
+          section: '3.2', type: 'uniInterp', title: 'What does the probability mean?',
+          top: `${u.story}<p>The probability that ${ctx.subj} will ${ph} is ${hl(trim(P / 100, 4))}.</p>`,
+          q: 'What does this probability mean?', right, wrong,
+          hints: [
+            'A probability is the <b>proportion of the time</b> something happens in the long run. Change the decimal to a percent.',
+            `${trim(P / 100, 4)} = ${ps}%. It is the area of the shaded part of the rectangle.`,
+            `Read the direction carefully: the probability is for “${ph}”.`,
+          ],
+          sol: [`${trim(P / 100, 4)} as a percent is ${ps}%, and it describes how often ${ctx.subj} will ${ph}.`, `Correct: <b>${right}</b>`],
+          meta: { q: 'uniWords', a, b, x, isLess, P },
+          signature: `3.2|uniInterp|W|${ctx.key}|${a}|${b}|${x}|${isLess}`,
+        });
+      }
+      if (variant === 'picture') {
+        const x = pick(g), x2 = roundTo(a + b - x, 6);
+        if (Math.abs(x - x2) < 0.25 * w) continue;
+        const between = chance(0.35);
+        let specs, ph;
+        if (between) {
+          const lo = Math.min(x, x2), hi = Math.max(x, x2);
+          specs = [{ t: 'B', a: lo, b: hi }, { t: 'O', a: lo, b: hi }, { t: 'L', a: hi }, { t: 'R', a: lo }];
+          ph = ctx.btw(f(lo), f(hi));
+        } else {
+          const isLess = chance(0.5);
+          specs = isLess ? [{ t: 'L', a: x }, { t: 'R', a: x }, { t: 'L', a: x2 }, { t: 'R', a: x2 }] : [{ t: 'R', a: x }, { t: 'L', a: x }, { t: 'R', a: x2 }, { t: 'L', a: x2 }];
+          ph = isLess ? ctx.lt(f(x)) : ctx.gt(f(x));
+        }
+        const po = pictureOptions(specs, (sp) => miniUniformSVG({ a, b, spec: sp, fmt: f }));
+        if (!po) continue;
+        const want = specs[0];
+        const desc = want.t === 'L' ? `everything to the <b>left</b> of ${f(want.a)}` : want.t === 'R' ? `everything to the <b>right</b> of ${f(want.a)}`
+          : `the part <b>between</b> ${f(want.a)} and ${f(want.b)}`;
+        return choiceProblem({
+          section: '3.2', type: 'uniInterp', title: 'Pick the shaded area',
+          top: u.story,
+          q: `Which picture shows the probability that ${ctx.subj} will ${ph}?`,
+          label: 'Choose a picture:', options: po.options, correct: po.correct,
+          hints: [
+            '“Less than” means shade to the <b>left</b> of the value; “more than” means shade to the <b>right</b>.',
+            'Read the numbers under each picture: the shading must start or stop at the value(s) in the question.',
+            `You want ${desc}.`,
+          ],
+          sol: [`“${ph}” is ${desc}.`, `The correct picture:${po.options[po.correct]}`],
+          meta: { q: 'uniPicture', a, b, want, specs: po.specs },
+          signature: `3.2|uniInterp|P|${ctx.key}|${a}|${b}|${specKey(want)}`,
+        });
+      }
+      // compare two intervals
+      const d1 = pick(g.filter((v) => v > a && v - a <= 0.3 * w).map((v) => roundTo(v - a, 6)));
+      if (!d1) continue;
+      const same = chance(0.55);
+      const d2 = same ? d1 : roundTo(d1 * pick([0.5, 2]), 6);
+      if (!(d2 > 0) || d2 > 0.35 * w) continue;
+      const mid = roundTo(Math.round(((a + b) / 2 - d1 / 2) / (d1 / 2)) * (d1 / 2), 6); // a middle interval
+      const end = chance(0.5) ? a : roundTo(b - d2, 6);
+      const I = shuffle([[mid, roundTo(mid + d1, 6)], [end, roundTo(end + d2, 6)]]);
+      if (I.some(([lo, hi]) => lo < a - 1e-9 || hi > b + 1e-9) || Math.max(I[0][0], I[1][0]) < Math.min(I[0][1], I[1][1])) continue;
+      const wA = I[0][1] - I[0][0], wB = I[1][1] - I[1][0];
+      const options = [cap(ctx.btw(f(I[0][0]), f(I[0][1]))), cap(ctx.btw(f(I[1][0]), f(I[1][1]))), 'They are equally likely.'];
+      const correct = Math.abs(wA - wB) < 1e-9 ? 2 : wA > wB ? 0 : 1;
+      return choiceProblem({
+        section: '3.2', type: 'uniInterp', title: 'Which is more likely?',
+        top: u.story, q: `Which is more likely for ${ctx.subj}?`, options, correct,
+        hints: [
+          'In a uniform distribution the density curve is <b>flat</b>: no value is more likely than another.',
+          'The probability of an interval is its area = width × height. Same height everywhere, so only the <b>width</b> matters.',
+          `Widths: ${eq(`${trim(I[0][1])} − ${trim(I[0][0])} = ${trim(wA)}`)} and ${eq(`${trim(I[1][1])} − ${trim(I[1][0])} = ${trim(wB)}`)}.`,
+        ],
+        sol: [
+          `Width of the first interval: ${trim(wA)}; width of the second: ${trim(wB)}. Each probability = width ÷ ${trim(w)}.`,
+          correct === 2 ? 'Same width → same area → <b>they are equally likely</b>, even though one interval is near the middle.'
+            : `The wider interval has more area, so <b>${options[correct]}</b> is more likely.`,
+        ],
+        meta: { q: 'uniCompare', a, b, intervals: I },
+        signature: `3.2|uniInterp|C|${ctx.key}|${a}|${b}|${I.join('|')}`,
+      });
+    }
+  }
+
+  const hs = (h) => { const d = h < 0.01 ? 6 : h < 0.1 ? 5 : 4; return Math.abs(roundTo(h, d) - h) < 1e-12 ? trim(h, d) : '≈ ' + trim(h, d); };
+  function gen32valid() {
+    for (;;) {
+      if (chance(0.55)) {
+        const u = uniPick(), { a, b, w, f } = u, h = 1 / w;
+        const rect = (lo, hi, ht) => `From ${f(lo)} to ${f(hi)}, height ${hs(ht)}`;
+        const right = rect(a, b, h);
+        const pool = [rect(a, b, w), rect(a, b, 1), rect(a, b, 2 / w)];
+        if (a > 0) pool.push(rect(a, b, 1 / b), rect(0, b, h));
+        const wrong = shuffle([...new Set(pool)].filter((o) => o !== right)).slice(0, 3);
+        if (wrong.length < 3 || !distinctAll([right].concat(wrong))) continue;
+        return choiceProblem({
+          section: '3.2', type: 'validDensity', title: 'Draw the density curve',
+          top: u.story, q: 'Which rectangle is the correct density curve for this distribution?', right, wrong,
+          hints: [
+            'A density curve must have a total area of exactly <b>1</b>.',
+            `The rectangle runs from a = ${f(a)} to b = ${f(b)}, so its width is ${eq(`${trim(b)} − ${trim(a)} = ${trim(w)}`)}.`,
+            `Height = 1 ÷ width = ${eq(`1 ÷ ${trim(w)}`)}.`,
+          ],
+          sol: [`Width = ${trim(w)}, so height = ${eq(`1 ÷ ${trim(w)} ${eqSign(h, 4)} ${trim(h, 4)}`)} (then width × height = 1).`, `Correct: <b>${right}</b>`],
+          meta: { q: 'validGiven', a, b, options: [right].concat(wrong) },
+          signature: `3.2|validDensity|G|${u.ctx.key}|${a}|${b}|${wrong.join('|')}`,
+        });
+      }
+      // which of these rectangles could be ANY density curve?
+      const W = [2, 4, 5, 8, 10, 20, 0.5, 2.5];
+      const mk = (area) => {
+        const w = pick(W), lo = pick([0, 0, 1, 2, 5, 10]), ht = area / w;
+        return { lo, hi: roundTo(lo + w, 6), ht, area };
+      };
+      const rects = [mk(1)].concat(shuffle([0.5, 2, 0.25, 1.5, 4]).slice(0, 3).map(mk));
+      if (rects.some((r) => Math.abs(roundTo(r.ht, 4) - r.ht) > 1e-12)) continue;
+      const txt = rects.map((r) => `From ${trim(r.lo)} to ${trim(r.hi)}, height ${trim(r.ht, 4)}`);
+      if (!distinctAll(txt)) continue;
+      return choiceProblem({
+        section: '3.2', type: 'validDensity', title: 'Valid density curve?',
+        top: '<p class="story">A uniform density curve is a flat rectangle. Here are four rectangles.</p>',
+        q: 'Which one could be a <b>density curve</b>?', right: txt[0], wrong: txt.slice(1),
+        hints: [
+          'Every density curve has a total area of exactly <b>1</b> (100% of the values).',
+          'For a rectangle, area = width × height. Width = right end − left end.',
+          `Check: ${rects.map((r) => `${trim(r.hi - r.lo)} × ${trim(r.ht, 4)}`).join(', ')}.`,
+        ],
+        sol: rects.map((r, i) => `${txt[i]}: area = ${eq(`${trim(r.hi - r.lo)} × ${trim(r.ht, 4)} = ${trim(r.area, 4)}`)}${i === 0 ? ' ← <b>area 1, valid</b>' : ''}`),
+        meta: { q: 'validAny', rects: rects.map((r) => ({ lo: r.lo, hi: r.hi, ht: r.ht })), options: txt },
+        signature: `3.2|validDensity|A|${txt.join('|')}`,
+      });
+    }
+  }
+
+  function gen32meanInterp() {
+    for (;;) {
+      const u = uniPick(), { ctx, a, b, f, U } = u, m = (a + b) / 2, pl = ctx.measurePl;
+      if (chance(0.55)) {
+        const right = chance(0.5) ? `If we recorded many ${pl}, their average would be about ${U(m)}.` : `About half of all ${pl} are less than ${U(m)}.`;
+        const wrong = shuffle([`Every one of the ${pl} is exactly ${U(m)}.`, `${cap(U(m))} is the most likely value; values near ${f(a)} or ${f(b)} are rare.`,
+          `About ${trim(m, 4)}% of the ${pl} are less than ${U(m)}.`, `Half of the ${pl} are exactly ${U(m)}.`]).slice(0, 3);
+        if (Math.abs(m - 50) < 1e-9 || !distinctAll([right].concat(wrong))) continue;
+        return choiceProblem({
+          section: '3.2', type: 'interpMean', title: 'What does the mean tell us?',
+          top: `${u.story}<p>The mean of this distribution is ${hl(U(m))}.</p>`, q: 'Which statement is correct?', right, wrong,
+          hints: [
+            'The mean is the long-run <b>average</b>: halfway between a and b for a uniform distribution.',
+            'A uniform distribution is flat: every value from a to b is <b>equally likely</b>, so the mean is not “more likely” than other values.',
+            'Because the rectangle is symmetric, half of the area is on each side of the mean.',
+          ],
+          sol: [`Mean = ${eq(`(${trim(a)} + ${trim(b)}) ÷ 2 = ${trim(m)}`)}: the balance point (and the middle) of the rectangle.`, `Correct: <b>${right}</b>`],
+          meta: { q: 'meanWords', a, b, right },
+          signature: `3.2|interpMean|W|${ctx.key}|${a}|${b}|${right}|${wrong.join('|')}`,
+        });
+      }
+      const right = `All values from ${f(a)} to ${f(b)} are equally likely.`;
+      return choiceProblem({
+        section: '3.2', type: 'interpMean', title: 'Most likely value?',
+        top: u.story, q: `Which ${ctx.unit && !ctx.deg ? 'time' : 'value'} is the <b>most likely</b>?`,
+        right, wrong: [`${cap(U(m))} (the mean)`, `${cap(U(a))} (the smallest possible)`, `${cap(U(b))} (the largest possible)`],
+        hints: [
+          'Think about the shape of the density curve for a uniform distribution.',
+          'The density curve is a <b>flat</b> rectangle: the same height everywhere from a to b.',
+          'Equal height means equal likelihood for equal-width intervals anywhere in the range.',
+        ],
+        sol: ['A uniform density curve is flat, so no value is more likely than any other.', `Correct: <b>${right}</b> (the mean, ${U(m)}, is the average, not the most likely value).`],
+        meta: { q: 'mostLikely' },
+        signature: `3.2|interpMean|M|${ctx.key}|${a}|${b}`,
+      });
+    }
+  }
+
+  function gen32(type) {
+    if (type === 'uniInterp') return gen32interp();
+    if (type === 'validDensity') return gen32valid();
+    if (type === 'interpMean') return gen32meanInterp();
+    return gen32calc(type);
   }
 
   // =====================================================================
@@ -1159,7 +1627,7 @@
       solo: (A) => `On average, a cow at ${A.g} makes ${A.m} kg of milk a day with a standard deviation of ${A.s} kg. Last week ${A.n} the cow made ${A.x} kg in one day.`,
       ask: 'Which cow produced more milk relative to her ranch?' },
     { key: 'bus', unit: 'minutes', muDec: 2, sdDec: 2, xDec: 2, mu: [8, 14], sd: [2, 5], lower: true,
-      groups: ['the stop near the high school', 'the stop near the library', 'the stop by the mall', 'the stop near the church', 'the stop by the park'],
+      groups: ['the high school stop', 'the library stop', 'the mall stop', 'the church stop', 'the park stop'],
       intro: (A, B) => `${A.n} and ${B.n} waited for buses at two different stops. Wait times at each stop:`,
       row: (P) => `<b>${P.G}</b>: mean ${P.m} min, SD ${P.s} min. ${P.n} waited <b>${P.x} min</b>`,
       solo: (A) => `The average wait for the bus at ${A.g} is ${A.m} minutes with a standard deviation of ${A.s} minutes. On Monday, ${A.n} waited ${A.x} minutes there.`,
@@ -1183,7 +1651,7 @@
       solo: (A) => `In ${A.g}, 100-meter dash times average ${A.m} seconds with a standard deviation of ${A.s} seconds. ${A.n} runs the dash in ${A.x} seconds.`,
       note: 'A <b>lower</b> time is better.', ask: 'Who ran better relative to their league?' },
     { key: 'golf', unit: 'strokes', muDec: 1, sdDec: 1, xDec: 0, mu: [72, 88], sd: [3, 6], lower: true,
-      groups: ['Oak Hills Golf Course', 'Seaside Links', 'Eagle Ridge Course', 'Pine Valley Course'],
+      groups: ['Oak Hills', 'Seaside Links', 'Eagle Ridge', 'Pine Valley'],
       intro: (A, B) => `${A.n} and ${B.n} played golf on different courses. Scores on each course:`,
       row: (P) => `<b>${P.G}</b>: mean ${P.m} strokes, SD ${P.s}. ${P.n} shot <b>${P.x}</b>`,
       solo: (A) => `At ${A.g}, the average score is ${A.m} strokes with a standard deviation of ${A.s} strokes. ${A.n} shot ${A.x} there.`,
@@ -1221,9 +1689,10 @@
     const dd = Math.max(decOf(o.x), decOf(o.m));
     return {
       z, zr,
-      part: { kind: 'num', label: o.label, unit: '', answer: zr, tol: 0.011, placeholder: 'e.g. -1.25' },
+      part: { kind: 'num', label: o.label, unit: '', answer: zr, tol: Z_TOL, placeholder: 'e.g. -1.25' },
       setup: `${eq(`z = (${o.xs} − ${o.ms}) ÷ ${o.ss}`)}`,
       calc: `${o.xs} − ${o.ms} = ${fmt(diff, dd)}, then ${fmt(diff, dd)} ÷ ${o.ss} → round to 2 decimals.`,
+      calc1: `${o.xs} − ${o.ms} = ${fmt(diff, dd)}, then ${fmt(diff, dd)} ÷ ${o.ss} ≈ ${fmt(zr, 2)}.`,
       sol: `${o.who ? o.who + ': ' : ''}${eq(`z = (${o.xs} − ${o.ms}) ÷ ${o.ss} = ${fmt(diff, dd)} ÷ ${o.ss} ${eqSign(z, 2)} ${fmt(zr, 2)}`)}`,
       meta: { q: 'z', mu: o.m, sigma: o.s, x: o.x },
     };
@@ -1231,115 +1700,54 @@
   const FORMULA = `Use ${eq('z = (x − μ) ÷ σ')}: subtract the mean, then divide by the standard deviation.`;
   const sdWords = (z) => `${trim(Math.abs(roundTo(z, 2)), 2)} standard deviation${Math.abs(roundTo(z, 2)) === 1 ? '' : 's'} ${z < 0 ? 'below' : 'above'} the mean`;
 
-  function gen33compare(opts) {
+  const CMP_COLS = {
+    fish: ['Lake', 'Fish (cm)'], milk: ['Ranch', 'Milk (kg)'], bus: ['Bus stop', 'Wait (min)'], sales: ['Company', 'Time (min)'],
+    tests: ['Class', 'Score'], dash: ['League', 'Time (s)'], golf: ['Course', 'Strokes'], pumpkin: ['Fair', 'Weight (lb)'],
+    gold: ['Guild', 'Coins'], escape: ['Dungeon', 'Time (min)'],
+  };
+  function gen33compare() {
     for (let tries = 0; ; tries++) {
       const ctx = pick(CMP_CTX);
       const gs = shuffle(ctx.groups).slice(0, 2);
       const nm = ctx.names ? shuffle(ctx.names).slice(0, 2) : names(2);
       const A = cmpPerson(ctx, -2.4, 2.4), B = cmpPerson(ctx, -2.4, 2.4);
       if (A.s <= 0 || B.s <= 0) continue;
-      if ([A.z, B.z].some((z) => Math.abs(z) < 0.1 || Math.abs(z) > 2.6 || zAmbiguous(z))) continue;
+      if ([A.z, B.z].some((z) => Math.abs(z) < 0.1 || Math.abs(z) > 2.6)) continue;
       const zA = roundTo(A.z, 2), zB = roundTo(B.z, 2);
-      if (Math.abs(zA - zB) < 0.15) continue;
+      if (Math.abs(zA - zB) < 0.2) continue;
       const betterIdx = ctx.lower ? (zA < zB ? 0 : 1) : (zA > zB ? 0 : 1);
       const rawBetter = ctx.lower ? (A.x < B.x ? 0 : 1) : (A.x > B.x ? 0 : 1);
+      if (A.x === B.x) continue;
       if (tries < 60 && rawBetter === betterIdx && chance(0.7)) continue; // usually make raw values misleading
       const F = (P, g, n) => ({ g, G: cap(g), n, m: trim(P.m, ctx.muDec), s: trim(P.s, ctx.sdDec), x: fmt(P.x, ctx.xDec) });
       const FA = F(A, gs[0], nm[0]), FB = F(B, gs[1], nm[1]);
-      const sa = zSub({ label: `${nm[0]}’s z =`, x: A.x, m: A.m, s: A.s, xs: FA.x, ms: FA.m, ss: FA.s, who: nm[0] });
-      const sb = zSub({ label: `${nm[1]}’s z =`, x: B.x, m: B.m, s: B.s, xs: FB.x, ms: FB.m, ss: FB.s, who: nm[1] });
+      const sa = zSub({ label: '', x: A.x, m: A.m, s: A.s, xs: FA.x, ms: FA.m, ss: FA.s, who: nm[0] });
+      const sb = zSub({ label: '', x: B.x, m: B.m, s: B.s, xs: FB.x, ms: FB.m, ss: FB.s, who: nm[1] });
       const better = nm[betterIdx];
       const dirText = ctx.lower
         ? `Here <b>lower is better</b>, so the <b>smaller</b> (more negative) z-score wins.`
         : 'Here higher is better, so the <b>larger</b> z-score wins.';
-      return compose({
+      const cols = CMP_COLS[ctx.key];
+      const row = (P) => `<tr><td>${P.n}</td><td>${cap(P.g.replace(/^the /, ''))}</td><td>${P.m}</td><td>${P.s}</td><td><b>${P.x}</b></td></tr>`;
+      return choiceProblem({
         section: '3.3', type: 'compare', title: 'Who did better?',
-        top: `<p class="story">${ctx.intro(FA, FB)}</p><div class="data">${ctx.row(FA)}<br>${ctx.row(FB)}</div>` +
+        top: `<p class="story">${ctx.intro(FA, FB)}</p>` +
+          `<table><tr><th>Name</th><th>${cols[0]}</th><th>Mean</th><th>SD</th><th>${cols[1]}</th></tr>${row(FA)}${row(FB)}</table>` +
           (ctx.note ? `<p class="small">${ctx.note}</p>` : ''),
-        subs: [{
-          q: `${ctx.ask} Compare their z-scores (round to 2 decimals).`,
-          parts: [sa.part, sb.part, { kind: 'choice', label: 'Better relative to their group:', options: [nm[0], nm[1]], correct: betterIdx }],
-          hints: [
-            `${FORMULA} Each person uses <b>their own</b> group’s mean and SD.`,
-            `${nm[0]}: ${sa.setup}<br>${nm[1]}: ${sb.setup}`,
-            `${nm[0]}: ${sa.calc}<br>${nm[1]}: ${sb.calc}<br>${dirText}`,
-          ],
-          sol: [
-            sa.sol, sb.sol,
-            `${dirText} ${fmt(sa.zr, 2)} vs. ${fmt(sb.zr, 2)} → <b>${better}</b> did better relative to their group.`,
-          ],
-        }],
-        meta: { lowerBetter: !!ctx.lower, parts: [sa.meta, sb.meta, { q: 'better', lowerBetter: !!ctx.lower }] },
+        q: `${ctx.ask} <span class="small">(Compare z-scores.)</span>`,
+        label: 'Better relative to their group:', options: [nm[0], nm[1]], correct: betterIdx,
+        hints: [
+          `${FORMULA} Each one uses <b>their own</b> group’s mean and SD.`,
+          `${nm[0]}: ${sa.setup}<br>${nm[1]}: ${sb.setup}`,
+          `${nm[0]}: ${sa.calc1}<br>${nm[1]}: ${sb.calc1}<br>${dirText}`,
+        ],
+        sol: [
+          sa.sol, sb.sol,
+          `${dirText} ${fmt(sa.zr, 2)} vs. ${fmt(sb.zr, 2)} → <b>${better}</b> did better relative to their group.`,
+        ],
+        metaTop: { lowerBetter: !!ctx.lower },
+        meta: { q: 'better', lowerBetter: !!ctx.lower, people: [sa.meta, sb.meta] },
         signature: `3.3|compare|${ctx.key}|${A.x}|${A.m}|${A.s}|${B.x}|${B.m}|${B.s}`,
-      });
-    }
-  }
-
-  const RANK_CTX = [
-    { key: 'class', lower: false, mu: [68, 80], muDec: 0, sd: [2, 8], sdDec: 1, xDec: 0,
-      intro: 'One student was chosen from each of four different stats classes. Here are their final scores, with each class’s mean and standard deviation:',
-      line: (n, x, m, s) => `<b>${n}</b>: scored ${x} (class mean ${m}, SD ${s})`,
-      best: 'did relatively <b>best</b> in their own class', worst: 'did relatively <b>worst</b> in their own class' },
-    { key: 'race', lower: true, mu: [62, 75], muDec: 1, sd: [2, 5], sdDec: 1, xDec: 1,
-      intro: 'Four runners ran the 400-meter race in different age groups. Here are their times (in seconds), with each age group’s mean and SD. <b>Lower times are better.</b>',
-      line: (n, x, m, s) => `<b>${n}</b>: ${x} s (group mean ${m} s, SD ${s} s)`,
-      best: 'ran relatively <b>best</b> for their age group', worst: 'ran relatively <b>worst</b> for their age group' },
-    { key: 'joust', lower: false, mu: [40, 60], muDec: 1, sd: [4, 9], sdDec: 1, xDec: 0,
-      intro: 'Four knights each competed in a different jousting tournament. Here are their points, with each tournament’s mean and standard deviation:',
-      line: (n, x, m, s) => `<b>Sir ${n}</b>: ${x} points (tournament mean ${m}, SD ${s})`,
-      best: 'did relatively <b>best</b> in their own tournament', worst: 'did relatively <b>worst</b> in their own tournament', sir: true },
-    { key: 'pumpkin', lower: false, mu: [300, 600], muDec: 0, sd: [30, 90], sdDec: 0, xDec: 0,
-      intro: 'Four growers entered giant pumpkins at four different county fairs. Here are their pumpkins’ weights (in pounds), with each fair’s mean and standard deviation:',
-      line: (n, x, m, s) => `<b>${n}</b>: ${x} lb (fair mean ${m} lb, SD ${s} lb)`,
-      best: 'grew the relatively <b>best</b> pumpkin for their fair', worst: 'grew the relatively <b>worst</b> pumpkin for their fair' },
-  ];
-  function gen33rank(opts) {
-    for (let tries = 0; ; tries++) {
-      const ctx = pick(RANK_CTX), nm = names(4), ask = chance(0.55) ? 'best' : 'worst';
-      const ppl = nm.map(() => {
-        const m = roundTo(unif(ctx.mu[0], ctx.mu[1]), ctx.muDec);
-        const s = roundTo(unif(ctx.sd[0], ctx.sd[1]), ctx.sdDec);
-        const x = roundTo(m + unif(-2.2, 2.3) * s, ctx.xDec);
-        return { m, s, x, z: (x - m) / s, zr: roundTo((x - m) / s, 2) };
-      });
-      if (ppl.some((p) => p.s <= 0 || Math.abs(p.z) < 0.1 || Math.abs(p.z) > 2.6)) continue;
-      // goodness: higher is better unless lower
-      const good = ppl.map((p) => (ctx.lower ? -p.zr : p.zr));
-      const order = good.map((g, i) => i).sort((i, j) => good[j] - good[i]); // best first
-      const target = ask === 'best' ? order[0] : order[3];
-      const runner = ask === 'best' ? order[1] : order[2];
-      if (Math.abs(good[target] - good[runner]) < 0.12) continue;
-      if (zAmbiguous(ppl[target].z)) continue;
-      // raw scores should not give it away (most of the time)
-      const rawGood = ppl.map((p) => (ctx.lower ? -p.x : p.x));
-      const rawTarget = rawGood.indexOf(ask === 'best' ? Math.max.apply(null, rawGood) : Math.min.apply(null, rawGood));
-      if (tries < 80 && rawTarget === target && chance(0.75)) continue;
-      const nmF = (i) => (ctx.sir ? 'Sir ' : '') + nm[i];
-      const F = ppl.map((p) => ({ m: trim(p.m, ctx.muDec), s: trim(p.s, ctx.sdDec), x: fmt(p.x, ctx.xDec) }));
-      const zs = ppl.map((p, i) => zSub({ label: 'Their z =', x: p.x, m: p.m, s: p.s, xs: F[i].x, ms: F[i].m, ss: F[i].s, who: nmF(i) }));
-      const tz = zs[target];
-      const dirText = ctx.lower
-        ? `Lower times are better, so the relatively ${ask} runner has the <b>${ask === 'best' ? 'smallest' : 'largest'}</b> z-score.`
-        : `Higher is better, so the relatively ${ask} one has the <b>${ask === 'best' ? 'largest' : 'smallest'}</b> z-score.`;
-      return compose({
-        section: '3.3', type: 'rank', title: 'Relative ranking',
-        top: `<p class="story">${ctx.intro}</p><div class="data">${ppl.map((p, i) => ctx.line(nm[i], F[i].x, F[i].m, F[i].s)).join('<br>')}</div>`,
-        subs: [{
-          q: `Who ${ask === 'best' ? ctx.best : ctx.worst}? Then give that person’s z-score.`,
-          parts: [
-            { kind: 'choice', label: `Relatively ${ask}:`, options: nm.map((_, i) => nmF(i)), correct: target },
-            Object.assign({}, tz.part, { label: 'Their z-score =' }),
-          ],
-          hints: [
-            `${FORMULA} Find a z-score for <b>each</b> of the four, using their own group’s mean and SD.`,
-            zs.map((s, i) => `${nmF(i)}: ${s.setup}`).join('<br>'),
-            `${zs.map((s, i) => `${nmF(i)}: z ≈ ${fmt(s.zr, 2)}`).join(', ')}.<br>${dirText}`,
-          ],
-          sol: zs.map((s) => s.sol).concat([`${dirText} → <b>${nmF(target)}</b>, with z ≈ <b>${fmt(tz.zr, 2)}</b>.`]),
-        }],
-        meta: { lowerBetter: !!ctx.lower, ask, people: ppl.map((p) => ({ mu: p.m, sigma: p.s, x: p.x })),
-          parts: [{ q: 'rank' }, tz.meta] },
-        signature: `3.3|rank|${ctx.key}|${ppl.map((p) => p.x + '/' + p.m + '/' + p.s).join('|')}|${ask}`,
       });
     }
   }
@@ -1350,7 +1758,7 @@
     return { ctx, mu: ms[0], sd: ms[1] };
   }
 
-  function gen33single(opts) {
+  function gen33single() {
     for (;;) {
       let story, q, x, m, s, xs, ms, ss, sig;
       if (chance(0.5)) {
@@ -1374,31 +1782,21 @@
         sig = `norm|${ctx.key}`;
       }
       const z = (x - m) / s;
-      if (Math.abs(z) < 0.1 || Math.abs(z) > 2.7 || zAmbiguous(z)) continue;
-      if (opts.hard && Math.abs(Math.abs(z) - 2) < 0.12) continue;
+      if (Math.abs(z) < 0.1 || Math.abs(z) > 2.7) continue;
       const zs = zSub({ label: 'z =', x, m, s, xs, ms, ss });
-      const parts = [zs.part];
-      const metaParts = [zs.meta];
-      const hints = [FORMULA, `Here x = ${xs}, μ = ${ms}, σ = ${ss}: ${zs.setup}`, zs.calc];
-      const sol = [zs.sol, `So the value is ${sdWords(z)}.`];
-      if (opts.hard) {
-        const unusual = Math.abs(zs.zr) > 2;
-        parts.push({ kind: 'choice', label: 'Is this value unusual (more than 2 SDs from the mean)?', options: ['Yes, |z| > 2', 'No, |z| ≤ 2'], correct: unusual ? 0 : 1 });
-        metaParts.push({ q: 'unusualYN', mu: m, sigma: s, x });
-        hints[2] += ' Then check whether |z| is bigger than 2.';
-        sol.push(`|z| = ${trim(Math.abs(zs.zr), 2)} is ${unusual ? '<b>more than 2</b>, so it <b>is unusual</b>' : '<b>not more than 2</b>, so it is <b>not unusual</b>'}.`);
-      }
+      // dividing by the variance, or forgetting to divide, must not land within the tolerance
+      if (!clearOf(zs.zr, Z_TOL, [(x - m) / (s * s), x - m, (m - x) / s])) continue;
       return compose({
         section: '3.3', type: 'single', title: 'Find the z-score',
         top: `<p class="story">${story}</p>`,
-        subs: [{ q, parts, hints, sol }],
-        meta: { parts: metaParts },
+        subs: [{ q, parts: [zs.part], hints: [FORMULA, `Here x = ${xs}, μ = ${ms}, σ = ${ss}: ${zs.setup}`, zs.calc], sol: [zs.sol, `So the value is ${sdWords(z)}.`] }],
+        meta: { parts: [zs.meta] },
         signature: `3.3|single|${sig}|${x}|${m}|${s}`,
       });
     }
   }
 
-  function gen33unusual(opts) {
+  function gen33unusual() {
     for (;;) {
       const N = pickNorm34(), ctx = N.ctx, mu = N.mu, sd = N.sd;
       const zTop = Math.min(3.2, ctx.zMax || 3.2);
@@ -1406,61 +1804,32 @@
       const near = gridVals(ctx, mu, sd, 0.2, 1.75);
       if (!far.length || near.length < 3) continue;
       const ms = nf(ctx, mu), ss = nf(ctx, sd);
-      const variantA = opts.hard || chance(0.55);
-      if (variantA) {
-        const u = pick(far);
-        const others = shuffle(near).slice(0, 3);
-        if (new Set(others).size < 3) continue;
-        const vals = shuffle([u].concat(others));
-        const lo = mu - 2 * sd, hi = mu + 2 * sd;
-        const subs = [{
-          q: `Which of these ${ctx.pl} would be considered <b>unusual</b> (more than 2 standard deviations from the mean)?`,
-          parts: [{ kind: 'choice', label: 'Unusual value:', options: vals.map((v) => nu(ctx, nf(ctx, v))), correct: vals.indexOf(u) }],
-          hints: [
-            `Unusual means |z| > 2, where ${eq('z = (x − μ) ÷ σ')}.`,
-            `Shortcut: 2 SDs below the mean is ${eq(`${ms} − 2(${ss}) = ${nf(ctx, lo)}`)} and 2 SDs above is ${eq(`${ms} + 2(${ss}) = ${nf(ctx, hi)}`)}.`,
-            `Which choice is <b>outside</b> the interval from ${nf(ctx, lo)} to ${nf(ctx, hi)}?`,
-          ],
-          sol: vals.map((v) => {
-            const z = (v - mu) / sd;
-            return `${nu(ctx, nf(ctx, v))}: z = (${trim(v)} − ${trim(mu)}) ÷ ${trim(sd)} ≈ ${fmt(z, 2)}${v === u ? ' ← <b>|z| > 2, unusual</b>' : ''}`;
-          }),
-        }];
-        const metaParts = [{ q: 'whichUnusual', mu, sigma: sd, values: vals }];
-        if (opts.hard) {
-          const zs = zSub({ label: 'Its z-score =', x: u, m: mu, s: sd, xs: trim(u), ms: trim(mu), ss: trim(sd) });
-          if (zAmbiguous(zs.z)) continue;
-          subs[0].parts.push(zs.part);
-          subs[0].q += ' Then find the z-score of that value.';
-          metaParts.push(zs.meta);
-        }
-        return compose({
-          section: '3.3', type: 'unusual', title: 'Unusual or not?',
-          top: `<p class="story">${ctx.story(ms, ss)}</p>`, subs, meta: { parts: metaParts },
-          signature: `3.3|unusual|A|${ctx.key}|${mu}|${sd}|${vals.join(',')}`,
-        });
-      }
-      // variant B: one value, z + yes/no
-      const x = chance(0.5) ? pick(far) : pick(gridVals(ctx, mu, sd, 0.3, 1.8));
-      const zs = zSub({ label: 'z =', x, m: mu, s: sd, xs: trim(x), ms: trim(mu), ss: trim(sd) });
-      if (zAmbiguous(zs.z)) continue;
-      const unusual = Math.abs(zs.zr) > 2;
-      return compose({
+      const u = pick(far);
+      const others = shuffle(near).slice(0, 3);
+      if (new Set(others).size < 3) continue;
+      const vals = shuffle([u].concat(others));
+      const lo = mu - 2 * sd, hi = mu + 2 * sd;
+      return choiceProblem({
         section: '3.3', type: 'unusual', title: 'Unusual or not?',
         top: `<p class="story">${ctx.story(ms, ss)}</p>`,
-        subs: [{
-          q: `Would ${ctx.one(nu(ctx, nf(ctx, x)))} be <b>unusual</b>? (Unusual means more than 2 standard deviations from the mean.) Find its z-score first.`,
-          parts: [zs.part, { kind: 'choice', label: 'Unusual?', options: ['Yes, |z| > 2', 'No, |z| ≤ 2'], correct: unusual ? 0 : 1 }],
-          hints: [FORMULA, `${zs.setup}`, `${zs.calc} Then: is |z| bigger than 2?`],
-          sol: [zs.sol, `|z| = ${trim(Math.abs(zs.zr), 2)}, which is ${unusual ? '<b>more than 2 → unusual</b>' : '<b>not more than 2 → not unusual</b>'}.`],
-        }],
-        meta: { parts: [zs.meta, { q: 'unusualYN', mu, sigma: sd, x }] },
-        signature: `3.3|unusual|B|${ctx.key}|${mu}|${sd}|${x}`,
+        q: `Which of these ${ctx.pl} would be considered <b>unusual</b> (more than 2 standard deviations from the mean)?`,
+        label: 'Unusual value:', options: vals.map((v) => nu(ctx, nf(ctx, v))), correct: vals.indexOf(u),
+        hints: [
+          `Unusual means |z| > 2, where ${eq('z = (x − μ) ÷ σ')}.`,
+          `Shortcut: 2 SDs below the mean is ${eq(`${ms} − 2(${ss}) = ${nf(ctx, lo)}`)} and 2 SDs above is ${eq(`${ms} + 2(${ss}) = ${nf(ctx, hi)}`)}.`,
+          `Which choice is <b>outside</b> the interval from ${nf(ctx, lo)} to ${nf(ctx, hi)}?`,
+        ],
+        sol: vals.map((v) => {
+          const z = (v - mu) / sd;
+          return `${nu(ctx, nf(ctx, v))}: z = (${trim(v)} − ${trim(mu)}) ÷ ${trim(sd)} ≈ ${fmt(z, 2)}${v === u ? ' ← <b>|z| > 2, unusual</b>' : ''}`;
+        }),
+        meta: { q: 'whichUnusual', mu, sigma: sd, values: vals },
+        signature: `3.3|unusual|${ctx.key}|${mu}|${sd}|${vals.join(',')}`,
       });
     }
   }
 
-  function gen33findX(opts) {
+  function gen33findX() {
     for (;;) {
       const N = pickNorm34(), ctx = N.ctx, mu = N.mu, sd = N.sd;
       const zDec = decOf(sd) === 0 ? 2 : 1;
@@ -1475,13 +1844,15 @@
         : `${ctx.whose || `A ${ctx.sing}’s ${ctx.measure}`} is <b>${trim(Math.abs(z), 2)} standard deviations ${z < 0 ? 'below' : 'above'}</b> the mean.`;
       const prod = z * sd;
       const unit = ctx.money ? 'dollars' : ctx.short;
-      const parts = [{ kind: 'num', label: `${cap(ctx.measure)} =`, unit, answer: x, tol: roundTo(Math.max(0.011, 0.02 * sd), 6) }];
+      const tol = normTol(x, sd);
+      if (!clearOf(x, tol, [mu - z * sd, z * sd])) continue; // wrong direction / forgetting the mean
+      const parts = [{ kind: 'num', label: `${cap(ctx.measure)} =`, unit, answer: x, tol }];
       const pd = Math.max(decOf(prod), 0);
       return compose({
         section: '3.3', type: 'findX', title: 'Work backward from z',
         top: `<p class="story">${ctx.story(ms, ss)}</p>`,
         subs: [{
-          q: `${phr} What is its ${ctx.measure}?`,
+          q: `${phr} What is the ${ctx.measure}?`,
           parts,
           hints: [
             `Undo the z-score formula: ${eq('x = μ + z·σ')}. (A negative z means below the mean.)`,
@@ -1499,12 +1870,126 @@
     }
   }
 
-  function gen33(type, opts) {
-    if (type === 'compare') return gen33compare(opts);
-    if (type === 'rank') return gen33rank(opts);
-    if (type === 'unusual') return gen33unusual(opts);
-    if (type === 'findX') return gen33findX(opts);
-    return gen33single(opts);
+  // ---- 3.3 interpretation ----
+  const unitWord = (ctx) => (ctx.money ? 'dollars' : ctx.unit || 'points');
+  function gen33words() {
+    for (;;) {
+      const N = pickNorm34(), ctx = N.ctx, mu = N.mu, sd = N.sd;
+      const z = roundTo((chance(0.5) ? -1 : 1) * unif(0.3, 2.6), chance(0.6) ? 1 : 2);
+      if (Math.abs(Math.abs(z) - 1) < 0.05 || Math.abs(z) < 0.3 || Math.abs(mu + z * sd) < 1e-9) continue;
+      const dir = z < 0 ? 'below' : 'above', opp = z < 0 ? 'above' : 'below', az = trim(Math.abs(z), 2);
+      const who = ctx.whose || `A ${ctx.sing}’s ${ctx.measure}`;
+      const story = `<p class="story">${ctx.story(nf(ctx, mu), nf(ctx, sd))}</p><p>${who} has a z-score of ${hl(trim(z, 2))}.</p>`;
+      if (chance(0.5)) {
+        const right = `It is ${sdWords(z)}.`;
+        return choiceProblem({
+          section: '3.3', type: 'zWords', title: 'What does z mean?', top: story,
+          q: 'Which statement correctly interprets this z-score?', right,
+          wrong: [`It is ${sdWords(-z)}.`, `It is ${az} ${unitWord(ctx)} ${dir} the mean.`, `It is ${az}% ${dir} the mean.`],
+          hints: [
+            'A z-score counts <b>standard deviations</b> from the mean, not units and not percents.',
+            'The <b>sign</b> tells the direction: negative = below the mean, positive = above the mean.',
+            `z = ${trim(z, 2)}: ${az} standard deviations, ${dir} the mean.`,
+          ],
+          sol: [`|z| = ${az} standard deviations; the sign is ${z < 0 ? 'negative → below' : 'positive → above'} the mean.`,
+            `Correct: <b>${right}</b> (That is ${az} × ${nf(ctx, sd)} = ${nu(ctx, nf(ctx, Math.abs(z) * sd))} ${dir} the mean.)`],
+          meta: { q: 'zWords', z, right },
+          signature: `3.3|zWords|W|${ctx.key}|${mu}|${sd}|${z}`,
+        });
+      }
+      const d = roundTo(Math.abs(z) * sd, 6), U = (v) => nu(ctx, nf(ctx, v));
+      const uw = ctx.money ? '' : ' ' + unitWord(ctx);
+      const dist = (v, w) => (ctx.money ? `${nfx(ctx, v)} ${w} the mean` : `${trim(v, 4)}${uw} ${w} the mean`);
+      const right = cap(dist(d, dir));
+      const wrong = [cap(dist(Math.abs(z), dir)), cap(dist(d, opp)), cap(dist(sd, dir))];
+      if (!distinctAll([right].concat(wrong))) continue;
+      return choiceProblem({
+        section: '3.3', type: 'zWords', title: 'How far from the mean?', top: story,
+        q: `How far from the mean is this ${ctx.measure}?`, right, wrong,
+        hints: [
+          `z = ${trim(z, 2)} means ${sdWords(z)}.`,
+          `One standard deviation is ${U(sd)}. Multiply: ${eq(`${az} × ${trim(sd)}`)}.`,
+          `${eq(`${az} × ${trim(sd)} = ${trim(d, 4)}`)}, ${dir} the mean.`,
+        ],
+        sol: [`${az} standard deviations × ${U(sd)} each = ${U(d)}.`, `Negative/positive z → ${dir} the mean. Correct: <b>${right}</b>`],
+        meta: { q: 'zDist', z, sigma: sd, right },
+        signature: `3.3|zWords|D|${ctx.key}|${mu}|${sd}|${z}`,
+      });
+    }
+  }
+
+  const LOWER_WORD = { bus: 'wait', sales: 'time to close a sale', dash: 'time', golf: 'score', escape: 'escape time' };
+  function gen33sign() {
+    const v = pick(['zero', 'negative', 'lower', 'lower', 'two']);
+    const nm = pick(NAMES), test = pick(TESTS);
+    if (v === 'zero') {
+      const right = `${nm}’s score is exactly equal to the class mean.`;
+      return choiceProblem({
+        section: '3.3', type: 'zSign', title: 'A z-score of 0', top: `<p class="story">${nm}’s score on a ${test} has a z-score of ${hl('0')}.</p>`,
+        q: 'What does this tell you?', right,
+        wrong: shuffle([`${nm} scored 0 points on the ${test}.`, `${nm} had the lowest score in the class.`, `Nobody in the class scored lower than ${nm}.`, `${nm}’s score was unusual.`]).slice(0, 3),
+        hints: ['A z-score tells how many standard deviations a value is from the <b>mean</b>.', 'z = (x − μ) ÷ σ. When is that fraction equal to 0?', 'z = 0 exactly when x − μ = 0, that is, x = μ.'],
+        sol: ['z = 0 means 0 standard deviations from the mean: x − μ = 0.', `Correct: <b>${right}</b>`],
+        meta: { q: 'zZero' }, signature: `3.3|zSign|zero|${nm}|${test}`,
+      });
+    }
+    if (v === 'negative') {
+      const N = pickNorm34(), ctx = N.ctx, who = ctx.whose || `A ${ctx.sing}’s ${ctx.measure}`;
+      const right = `It is below the mean ${ctx.measure}.`;
+      return choiceProblem({
+        section: '3.3', type: 'zSign', title: 'A negative z-score',
+        top: `<p class="story">${ctx.story(nf(ctx, N.mu), nf(ctx, N.sd))}</p><p>${who} has a ${hl('negative')} z-score.</p>`,
+        q: 'Which statement must be true?', right,
+        wrong: [`The ${ctx.measure} itself is a negative number.`, `It is above the mean ${ctx.measure}.`, 'It is unusual (more than 2 standard deviations from the mean).'],
+        hints: ['z = (x − μ) ÷ σ, and σ is always positive.', 'So z is negative exactly when x − μ is negative.', 'x − μ < 0 means x < μ.'],
+        sol: ['A negative z-score means x − μ < 0, so the value is less than the mean. It does not have to be unusual (that needs |z| > 2).', `Correct: <b>${right}</b>`],
+        meta: { q: 'zNeg' }, signature: `3.3|zSign|neg|${ctx.key}|${N.mu}`,
+      });
+    }
+    if (v === 'lower') {
+      const ctx = pick(CMP_CTX.filter((c) => c.lower)), g = pick(ctx.groups), w = LOWER_WORD[ctx.key];
+      const z = roundTo((chance(0.6) ? -1 : 1) * unif(0.4, 2.2), 1);
+      if (Math.abs(Math.abs(z) - 1) < 0.05) return gen33sign();
+      const below = z < 0, az = trim(Math.abs(z), 2), u = ctx.unit === 'strokes' ? 'strokes' : ctx.unit;
+      const who = ctx.key === 'escape' ? `${nm}’s party` : nm, whose = ctx.key === 'escape' ? `${nm}’s party’s` : `${nm}’s`;
+      const right = below ? `${cap(whose)} ${w} was below the mean, which is good here.` : `${cap(whose)} ${w} was above the mean, which is bad here.`;
+      const wrong = below
+        ? [`${cap(whose)} ${w} was above the mean.`, `${cap(who)} did worse than average, because the z-score is negative.`, `${cap(whose)} ${w} was ${az} ${u} below the mean.`]
+        : [`${cap(whose)} ${w} was below the mean.`, `${cap(who)} did better than average, because the z-score is positive.`, `${cap(whose)} ${w} was ${az} ${u} above the mean.`];
+      return choiceProblem({
+        section: '3.3', type: 'zSign', title: 'When lower is better',
+        top: `<p class="story">At ${g}, ${whose} ${w} has a z-score of ${hl(fmt(z, 1))}.</p><p class="small">${ctx.note}</p>`,
+        q: 'Which statement is correct?', right, wrong,
+        hints: ['The sign of z only tells the direction: negative = below the mean, positive = above.', 'Whether that is good or bad depends on the context. Here, lower is better.',
+          `z = ${fmt(z, 1)} is ${az} standard deviations (not ${u}) ${below ? 'below' : 'above'} the mean.`],
+        sol: [`z = ${fmt(z, 1)} → ${below ? 'below' : 'above'} the mean. Since lower is better here, that is ${below ? 'good' : 'bad'}.`, `Correct: <b>${right}</b>`],
+        meta: { q: 'zLower', z, right }, signature: `3.3|zSign|lower|${ctx.key}|${nm}|${z}`,
+      });
+    }
+    // two students on the same test
+    const [A, B] = names(2);
+    const za = roundTo(unif(0.4, 2.2), 1), zb = roundTo(-unif(0.3, 1.8), 1);
+    const P = chance(0.5) ? [[A, za], [B, zb]] : [[B, zb], [A, za]];
+    const right = `${A} scored above the class mean and ${B} scored below it.`;
+    return choiceProblem({
+      section: '3.3', type: 'zSign', title: 'Comparing z-scores',
+      top: `<p class="story">On the same ${test}, ${P[0][0]}’s z-score was ${hl(fmt(P[0][1], 1))} and ${P[1][0]}’s z-score was ${hl(fmt(P[1][1], 1))}.</p>`,
+      q: 'Which statement is correct?', right,
+      wrong: [`${B} scored higher than ${A}.`, `Both scored above the class mean.`, `${A}’s score was ${trim(za, 1)} points above the class mean.`],
+      hints: ['Positive z = above the mean; negative z = below the mean.', 'On the same test (same mean and SD), a bigger z-score means a higher score.',
+        `${A}: z = ${fmt(za, 1)} (above). ${B}: z = ${fmt(zb, 1)} (below). z counts standard deviations, not points.`],
+      sol: [`${A}: ${fmt(za, 1)} > 0 → above the mean. ${B}: ${fmt(zb, 1)} < 0 → below the mean.`, `Correct: <b>${right}</b>`],
+      meta: { q: 'zTwo', za, zb, right }, signature: `3.3|zSign|two|${A}|${B}|${za}|${zb}|${test}`,
+    });
+  }
+
+  function gen33(type) {
+    if (type === 'compare') return gen33compare();
+    if (type === 'unusual') return gen33unusual();
+    if (type === 'findX') return gen33findX();
+    if (type === 'zWords') return gen33words();
+    if (type === 'zSign') return gen33sign();
+    return gen33single();
   }
 
   // =====================================================================
@@ -1512,8 +1997,6 @@
   // =====================================================================
   const PCTILE_KS = [5, 10, 15, 20, 25, 30, 35, 40, 45, 55, 60, 65, 70, 75, 80, 85, 90, 95];
   const CUT_PS = [1, 2, 3, 5, 10, 15, 20, 25];
-  // accepts 2-decimal rounding and small z-rounding differences; rejects wrong tails / wrong methods
-  const xTol = (sd) => roundTo(Math.max(0.0025 * sd, Math.min(0.05, 0.04 * sd), 0.006), 6);
   const ND = (mu, sd) => `normaldist(${raw(mu)}, ${raw(sd)})`;
 
   function norm34Sub(kind, ctx, mu, sd) {
@@ -1522,9 +2005,10 @@
     const cdf = (v) => normalCdf((v - mu) / sd);
     const desmosArea = (lo, hi) => `In Desmos, type ${eq(ND(mu, sd))}. Check <b>Find Cumulative Probability</b>, then set <b>Min</b> = ${lo} and <b>Max</b> = ${hi}.`;
     const NEG_INF = '−∞ (type <i>-infinity</i>)', POS_INF = '∞ (type <i>infinity</i>)';
-    const areaPart = (P) => ({ kind: 'num', label: 'Percent =', unit: '%', answer: roundTo(P, 2), tol: 0.15, placeholder: 'e.g. 12.34' });
+    const areaPart = (P) => ({ kind: 'num', label: 'Percent =', unit: '%', answer: roundTo(P, 4), tol: PCT_TOL, placeholder: 'e.g. 12.34' });
     if (kind === 'less' || kind === 'greater') {
-      const x = pick(gridVals(ctx, mu, sd, 0.25, Math.min(zMax, 2.6)));
+      // |z| ≤ 2.05 keeps every area ≥ 2%, so a decimal typed instead of a percent cannot pass
+      const x = pick(gridVals(ctx, mu, sd, 0.25, Math.min(zMax, 2.05)));
       const isLess = kind === 'less';
       const P = 100 * (isLess ? cdf(x) : 1 - cdf(x));
       const z = (x - mu) / sd;
@@ -1533,7 +2017,7 @@
         parts: [areaPart(P)],
         hints: [
           isLess ? desmosArea(NEG_INF, raw(x)) : desmosArea(raw(x), POS_INF),
-          `Desmos shows about <b>${fmt(P / 100, 4)}</b>. Multiply by 100 to get a percent (2 decimals).`,
+          `Desmos shows about <b>${fmt(P / 100, 4)}</b>. Multiply by 100 to get a percent.`,
         ],
         sol: [
           `Desmos: ${eq(ND(mu, sd))}, cumulative probability from ${isLess ? '−∞' : nf(ctx, x)} to ${isLess ? nf(ctx, x) : '∞'} → ${fmt(P / 100, 4)}`,
@@ -1556,7 +2040,7 @@
         parts: [areaPart(P)],
         hints: [
           desmosArea(raw(x1), raw(x2)),
-          `Desmos shows about <b>${fmt(P / 100, 4)}</b>. Multiply by 100 to get a percent (2 decimals).`,
+          `Desmos shows about <b>${fmt(P / 100, 4)}</b>. Multiply by 100 to get a percent.`,
         ],
         sol: [
           `Desmos: ${eq(ND(mu, sd))}, cumulative probability from ${nf(ctx, x1)} to ${nf(ctx, x2)} → ${fmt(P / 100, 4)}`,
@@ -1569,11 +2053,12 @@
     const unit = ctx.money ? 'dollars' : ctx.short;
     if (kind === 'percentile') {
       let k, v;
-      do { k = pick(PCTILE_KS); v = mu + sd * invNorm(k / 100); } while (Math.abs((v - mu) / sd) > zMax);
+      do { k = pick(PCTILE_KS); v = mu + sd * invNorm(k / 100); }
+      while (Math.abs((v - mu) / sd) > zMax || !clearOf(v, normTol(v, sd), [mu - (v - mu)])); // wrong tail
       const p = trim(k / 100, 2);
       return {
         q: `Find the <b>${ord(k)} percentile</b> of ${ctx.measures || ctx.measure + 's'}. (Round to 2 decimal places.)`,
-        parts: [{ kind: 'num', label: `${ord(k)} percentile =`, unit, answer: roundTo(v, 2), tol: xTol(sd) }],
+        parts: [{ kind: 'num', label: `${ord(k)} percentile =`, unit, answer: roundTo(v, 2), tol: normTol(v, sd) }],
         hints: [
           `The ${ord(k)} percentile has <b>${k}%</b> of the area to its <b>left</b>. In Desmos type ${eq(`${ND(mu, sd)}.inversecdf(${p})`)}.`,
           `Desmos gives about ${nf(ctx, v, sd < 1 ? 2 : 1)}. Round to 2 decimal places.`,
@@ -1593,11 +2078,11 @@
       p = pick(CUT_PS);
       left = dir === 'low' ? p : 100 - p;
       v = mu + sd * invNorm(left / 100);
-    } while (Math.abs((v - mu) / sd) > (ctx.zMax ? ctx.zMax + 0.2 : 2.9));
+    } while (Math.abs((v - mu) / sd) > (ctx.zMax ? ctx.zMax + 0.2 : 2.9) || !clearOf(v, normTol(v, sd), [mu - (v - mu)]));
     const ps = trim(left / 100, 2);
     return {
       q: `Complete the sentence (round to 2 decimal places): “${dir === 'low' ? ctx.cutLow(p) : ctx.cutHigh(p)}”`,
-      parts: [{ kind: 'num', label: 'Cutoff =', unit, answer: roundTo(v, 2), tol: xTol(sd) }],
+      parts: [{ kind: 'num', label: 'Cutoff =', unit, answer: roundTo(v, 2), tol: normTol(v, sd) }],
       hints: [
         dir === 'low'
           ? `The bottom ${p}% means ${p}% of the area is to the <b>left</b> of the cutoff. Type ${eq(`${ND(mu, sd)}.inversecdf(${ps})`)}.`
@@ -1624,27 +2109,243 @@
     });
   }
 
-  function gen34(type, opts) {
+  function gen34calc(type) {
     const N = pickNorm34(), ctx = N.ctx, mu = N.mu, sd = N.sd;
-    const kinds = [type];
-    if (opts.hard) {
-      const others = TYPES['3.4'].filter((t) => t !== type);
-      kinds.push(pick(others));
-    }
-    const subs = kinds.map((k) => norm34Sub(k, ctx, mu, sd));
-    const h1 = `Sketch a Normal curve centered at μ = ${nf(ctx, mu)} with σ = ${nf(ctx, sd)}, and shade the region you want${subs.length > 1 ? ' (shown for part a)' : ''}:` +
-      normDiagram(ctx, mu, sd, subs[0], false);
+    const sub = norm34Sub(type, ctx, mu, sd);
+    const h1 = `Sketch a Normal curve centered at μ = ${nf(ctx, mu)} with σ = ${nf(ctx, sd)}, and shade the region you want:` +
+      normDiagram(ctx, mu, sd, sub, false);
     return compose({
       section: '3.4', type, desmos: true,
       title: { less: 'Desmos: area to the left', greater: 'Desmos: area to the right', between: 'Desmos: area in between',
         percentile: 'Desmos: find the percentile', cutoff: 'Desmos: find the cutoff' }[type],
       top: `<p class="story">${ctx.story(nf(ctx, mu), nf(ctx, sd))}</p>`,
-      subs, preHints: [h1],
-      bottom: `<p class="small">Use Desmos in your other tab.${kinds.some((k) => ['less', 'greater', 'between'].indexOf(k) >= 0) ? ' Give percents to 2 decimal places.' : ''}</p>`,
-      postSol: subs.map((s, i) => (subs.length > 1 ? `<b>(${LET[i]})</b> ` : '') + 'Shaded region:' + normDiagram(ctx, mu, sd, s, true)).slice(0, 1),
-      meta: { mu, sigma: sd, parts: subs.map((s) => s.meta) },
-      signature: `3.4|${type}|${ctx.key}|${mu}|${sd}|${subs.map((s) => s.sig).join('|')}`,
+      subs: [sub], preHints: [h1],
+      bottom: `<p class="small">Use Desmos in your other tab.${['less', 'greater', 'between'].indexOf(type) >= 0 ? ' Answer as a percent (rounding is fine).' : ''}</p>`,
+      postSol: ['Shaded region:' + normDiagram(ctx, mu, sd, sub, true)],
+      meta: { mu, sigma: sd, parts: [sub.meta] },
+      signature: `3.4|${type}|${ctx.key}|${mu}|${sd}|${sub.sig}`,
     });
+  }
+
+  // ---- shaded-area pictures (3.4 and 3.5) ----
+  const aOf = (w) => (/^(SAT|[aeiouAEIOU])/.test(w) ? 'an' : 'a');
+  const sdN = (k) => `${k} standard deviation${k === 1 ? '' : 's'}`;
+  const specWords = (sp, f) => ({
+    L: `everything to the <b>left</b> of ${f(sp.a)}`, R: `everything to the <b>right</b> of ${f(sp.a)}`,
+    B: `the middle part <b>between</b> ${f(sp.a)} and ${f(sp.b)}`, O: `<b>both tails</b>: below ${f(sp.a)} and above ${f(sp.b)}`,
+  }[sp.t]);
+  const SHADE_HINTS = [
+    '“Less than”, “at most”, “below” → shade to the <b>left</b>. “More than”, “at least”, “above” → shade to the <b>right</b>.',
+    '“Between” or “within” → shade the <b>middle</b>. “Less than … or more than …” / “not between” → shade <b>both tails</b>.',
+  ];
+  function shadeProblem(o) {
+    // o: { section, type, ctx, mu, sd, specs (first = correct), phrase, extraTop, hint3, sig }
+    const f = (v) => nf(o.ctx, roundTo(v, 6));
+    const po = pictureOptions(o.specs, (sp) => miniNormalSVG({ mu: o.mu, sd: o.sd, spec: sp, fmt: f }));
+    if (!po) return null;
+    const want = o.specs[0];
+    return choiceProblem({
+      section: o.section, type: o.type, title: 'Pick the shaded area',
+      top: `<p class="story">${o.ctx.story(nf(o.ctx, o.mu), nf(o.ctx, o.sd))}</p>${o.extraTop || ''}`,
+      q: `Which picture shows the proportion of ${o.ctx.pl} ${o.phrase}?`,
+      label: 'Choose a picture:', options: po.options, correct: po.correct,
+      hints: [SHADE_HINTS[0], o.hint2 || SHADE_HINTS[1], o.hint3 || `You want ${specWords(want, f)}.`],
+      sol: [`“${o.phrase.replace(/^(that|whose) /, '')}” means ${specWords(want, f)}.`, `The correct picture:${po.options[po.correct]}`],
+      metaTop: { mu: o.mu, sigma: o.sd },
+      meta: { q: 'shade', mu: o.mu, sigma: o.sd, want, specs: po.specs },
+      signature: `${o.section}|${o.type}|${o.ctx.key}|${o.mu}|${o.sd}|${specKey(want)}|${o.phrase}`,
+    });
+  }
+  function gen34shade() {
+    for (;;) {
+      const N = pickNorm34(), ctx = N.ctx, mu = N.mu, sd = N.sd;
+      const U = (v) => nu(ctx, nf(ctx, roundTo(v, 6))), F = (v) => nf(ctx, roundTo(v, 6));
+      const g = gridVals(ctx, mu, sd, 0.5, 2.2);
+      const t = pick(['L', 'R', 'L', 'R', 'B', 'O']);
+      let specs, phrase;
+      if (t === 'L' || t === 'R') {
+        const v = pick(g), v2 = roundTo(2 * mu - v, 6);
+        specs = t === 'L' ? [{ t: 'L', a: v }, { t: 'R', a: v }, { t: 'L', a: v2 }, { t: 'R', a: v2 }]
+          : [{ t: 'R', a: v }, { t: 'L', a: v }, { t: 'R', a: v2 }, { t: 'L', a: v2 }];
+        phrase = t === 'L'
+          ? pick([`that ${ctx.lt(U(v))}`, `whose ${ctx.measure} is at most ${U(v)}`, `whose ${ctx.measure} is below ${U(v)}`])
+          : pick([`that ${ctx.gt(U(v))}`, `whose ${ctx.measure} is at least ${U(v)}`, `whose ${ctx.measure} is above ${U(v)}`]);
+      } else {
+        let v1, v2, within = chance(0.35) && t === 'B';
+        if (within) {
+          const d = roundTo(Math.abs(pick(g) - mu), 6);
+          v1 = roundTo(mu - d, 6); v2 = roundTo(mu + d, 6);
+        } else {
+          v1 = pick(g); v2 = pick(g);
+        }
+        if (!(v2 - v1 >= 1.2 * sd)) continue;
+        specs = t === 'B' ? [{ t: 'B', a: v1, b: v2 }, { t: 'O', a: v1, b: v2 }, { t: 'L', a: v2 }, { t: 'R', a: v1 }]
+          : [{ t: 'O', a: v1, b: v2 }, { t: 'B', a: v1, b: v2 }, { t: 'L', a: v1 }, { t: 'R', a: v2 }];
+        phrase = t === 'B'
+          ? (within ? `whose ${ctx.measure} is within ${U(v2 - mu)} of the mean` : `that ${ctx.btw(F(v1), U(v2))}`)
+          : pick([`whose ${ctx.measure} is less than ${F(v1)} or more than ${U(v2)}`, `whose ${ctx.measure} is <b>not</b> between ${F(v1)} and ${U(v2)}`]);
+        if (within) specs[0].within = true;
+      }
+      const p = shadeProblem({ section: '3.4', type: 'shadeArea', ctx, mu, sd, specs, phrase,
+        hint3: specs[0].within ? `Within ${U(specs[0].b - mu)} of the mean ${nf(ctx, mu)} means from ${F(specs[0].a)} to ${F(specs[0].b)}.` : null });
+      if (p) return p;
+    }
+  }
+
+  // ---- which Desmos setup? ----
+  function gen34setup() {
+    for (;;) {
+      const N = pickNorm34(), ctx = N.ctx, mu = N.mu, sd = N.sd;
+      const U = (v) => nu(ctx, nf(ctx, v));
+      const nd = ND(mu, sd), sw = ND(sd, mu), NI = '−∞', PI = '∞';
+      const m = (lo, hi, d) => `${eq(d || nd)} Min = ${lo}, Max = ${hi}`;
+      const ms = (lo, hi) => `${eq(nd)} Min = ${lo}, Max = ${hi}`;
+      if (chance(0.55)) {
+        const kind = pick(['less', 'greater', 'between']);
+        const g = gridVals(ctx, mu, sd, 0.3, 2.2);
+        let right, wrong, q, meta, plain;
+        if (kind === 'between') {
+          const x1 = pick(g), x2 = pick(g);
+          if (!(x2 - x1 >= 0.8 * sd)) continue;
+          right = m(raw(x1), raw(x2));
+          wrong = [m(NI, raw(x2)), m(raw(x1), raw(x2), sw), m(raw(x2), PI)];
+          q = `that ${ctx.btw(nf(ctx, x1), U(x2))}`;
+          meta = { q: 'setupArea', kind, lo: x1, hi: x2 };
+          plain = `“Between” → Min = ${raw(x1)} and Max = ${raw(x2)}.`;
+        } else {
+          const x = pick(g), isLess = kind === 'less';
+          const near = x > mu ? [raw(mu), raw(x)] : [raw(x), raw(mu)];
+          right = isLess ? m(NI, raw(x)) : m(raw(x), PI);
+          wrong = [isLess ? m(raw(x), PI) : m(NI, raw(x)), isLess ? m(NI, raw(x), sw) : m(raw(x), PI, sw), ms(near[0], near[1])];
+          q = `that ${isLess ? ctx.lt(U(x)) : ctx.gt(U(x))}`;
+          meta = { q: 'setupArea', kind, lo: isLess ? -Infinity : x, hi: isLess ? x : Infinity };
+          plain = isLess ? `“Less than” → everything to the left: Min = −∞, Max = ${raw(x)}.` : `“More than” → everything to the right: Min = ${raw(x)}, Max = ∞.`;
+        }
+        if (!distinctAll([right].concat(wrong))) continue;
+        return choiceProblem({
+          section: '3.4', type: 'desmosSetup', title: 'Which Desmos setup?',
+          top: `<p class="story">${ctx.story(nf(ctx, mu), nf(ctx, sd))}</p>`,
+          q: `In Desmos, which setup (with <b>Find Cumulative Probability</b> checked) gives the proportion of ${ctx.pl} ${q}?`,
+          right, wrong,
+          hints: [
+            `${eq('normaldist(μ, σ)')}: the <b>mean comes first</b>, then the standard deviation.`,
+            'Min and Max are the edges of the shaded region. A tail that goes on forever uses −∞ or ∞.',
+            plain,
+          ],
+          sol: [`${eq(nd)} (mean ${raw(mu)}, SD ${raw(sd)}). ${plain}`, `Correct: <b>${right}</b>`],
+          metaTop: { mu, sigma: sd }, meta: Object.assign({ mu, sigma: sd }, meta),
+          signature: `3.4|desmosSetup|A|${ctx.key}|${mu}|${sd}|${right}`,
+        });
+      }
+      // inverse cdf
+      let left, q, meta, plain;
+      const measures = ctx.measures || ctx.measure + 's';
+      if (chance(0.45)) {
+        const k = pick(PCTILE_KS.filter((x) => x !== 50));
+        left = k / 100;
+        q = `Which Desmos command finds the <b>${ord(k)} percentile</b> of ${measures}?`;
+        meta = { q: 'setupInv', left, kind: 'percentile', k };
+        plain = `The ${ord(k)} percentile has ${k}% = ${trim(left, 2)} of the area to its left.`;
+      } else {
+        const dir = chance(0.5) ? 'low' : 'high', p = pick(CUT_PS);
+        left = dir === 'low' ? p / 100 : 1 - p / 100;
+        q = `Which Desmos command completes the sentence “${dir === 'low' ? ctx.cutLow(p) : ctx.cutHigh(p)}”?`;
+        meta = { q: 'setupInv', left, kind: 'cutoff', dir, p };
+        plain = dir === 'low' ? `The bottom ${p}% is the area to the left: ${trim(left, 2)}.`
+          : `The top ${p}% is on the right, so the area to the <b>left</b> of the cutoff is 1 − ${trim(p / 100, 2)} = ${trim(left, 2)}.`;
+      }
+      const inv = (d, x) => eq(`${d}.inversecdf(${x})`);
+      const right = inv(nd, trim(left, 2));
+      const wrong = [inv(nd, trim(1 - left, 2)), inv(nd, trim(100 * left, 2)), inv(sw, trim(left, 2))];
+      if (!distinctAll([right].concat(wrong))) continue;
+      return choiceProblem({
+        section: '3.4', type: 'desmosSetup', title: 'Which Desmos command?',
+        top: `<p class="story">${ctx.story(nf(ctx, mu), nf(ctx, sd))}</p>`, q, right, wrong,
+        hints: [
+          `${eq('normaldist(μ, σ).inversecdf(area)')} gives the value with that much area to its <b>left</b>. The mean comes first.`,
+          'The area must be a decimal between 0 and 1 (for example 0.2, not 20).',
+          plain,
+        ],
+        sol: [plain, `Correct: <b>${right}</b>`],
+        metaTop: { mu, sigma: sd }, meta: Object.assign({ mu, sigma: sd }, meta),
+        signature: `3.4|desmosSetup|I|${ctx.key}|${mu}|${sd}|${right}`,
+      });
+    }
+  }
+
+  // ---- interpret a Normal percentile / cutoff / area ----
+  function gen34interp() {
+    for (;;) {
+      const N = pickNorm34(), ctx = N.ctx, mu = N.mu, sd = N.sd, pl = ctx.pl;
+      const story = `<p class="story">${ctx.story(nf(ctx, mu), nf(ctx, sd))}</p>`;
+      const measures = ctx.measures || ctx.measure + 's';
+      const V = (v) => nu(ctx, nfx(ctx, v));
+      const variant = pick(['pct', 'cut', 'area']);
+      if (variant === 'pct') {
+        const k = pick(PCTILE_KS.filter((x) => x !== 25 && x !== 50)), v = mu + sd * invNorm(k / 100);
+        if (Math.abs((v - mu) / sd) > (ctx.zMax || 2.9)) continue;
+        const lo = Math.min(v, mu), hi = Math.max(v, mu);
+        const right = `${k}% of ${pl} ${ctx.lt(V(v))}.`;
+        return choiceProblem({
+          section: '3.4', type: 'normInterp', title: 'What does the percentile mean?',
+          top: `${story}<p>The ${ord(k)} percentile of ${measures} is ${hl(V(v))}.</p>`,
+          q: 'Which statement is correct?', right,
+          wrong: [`${k}% of ${pl} ${ctx.gt(V(v))}.`, `${100 - k}% of ${pl} ${ctx.lt(V(v))}.`, `${k}% of ${pl} ${ctx.btw(nfx(ctx, lo), V(hi))}.`],
+          hints: ['A percentile is a value with that percent of the data <b>below</b> it.', `So the ${ord(k)} percentile has ${k}% of the area to its <b>left</b>.`, `Look for “${k}% … ${ctx.lt('…')}”.`],
+          sol: [`The ${ord(k)} percentile means ${k}% of the values are less than it.`, `Correct: <b>${right}</b>`],
+          metaTop: { mu, sigma: sd }, meta: { q: 'interpPct', k, v, right },
+          signature: `3.4|normInterp|P|${ctx.key}|${mu}|${sd}|${k}`,
+        });
+      }
+      if (variant === 'cut') {
+        const dir = chance(0.5) ? 'low' : 'high', p = pick(CUT_PS.filter((x) => x !== 50));
+        const v = mu + sd * invNorm(dir === 'low' ? p / 100 : 1 - p / 100);
+        if (Math.abs((v - mu) / sd) > (ctx.zMax ? ctx.zMax + 0.2 : 2.9)) continue;
+        const sentence = (dir === 'low' ? ctx.cutLow(p) : ctx.cutHigh(p)).replace('$____', nfx(ctx, v)).replace('____', fmt(v, 2));
+        const right = dir === 'low' ? `${cap(V(v))} is the ${ord(p)} percentile of ${measures}.` : `${100 - p}% of ${pl} ${ctx.lt(V(v))}.`;
+        const wrong = dir === 'low'
+          ? [`${cap(V(v))} is the ${ord(100 - p)} percentile of ${measures}.`, `${p}% of ${pl} ${ctx.gt(V(v))}.`, `${100 - p}% of ${pl} ${ctx.lt(V(v))}.`]
+          : [`${p}% of ${pl} ${ctx.lt(V(v))}.`, `${100 - p}% of ${pl} ${ctx.gt(V(v))}.`, `${cap(V(v))} is the ${ord(p)} percentile of ${measures}.`];
+        return choiceProblem({
+          section: '3.4', type: 'normInterp', title: 'Same meaning?',
+          top: `${story}<p>“${sentence}”</p>`, q: 'Which statement means the same thing?', right, wrong,
+          hints: [
+            `${dir === 'low' ? `The bottom ${p}%` : `The top ${p}%`} is a tail of the curve. Which side is it on?`,
+            `${dir === 'low' ? `${p}% of the area is to the <b>left</b> of the cutoff.` : `${p}% is to the <b>right</b>, so ${100 - p}% is to the <b>left</b>.`}`,
+            'A percentile is the percent of values <b>below</b> a value.',
+          ],
+          sol: [dir === 'low' ? `${p}% of ${pl} are below ${V(v)}, so ${V(v)} is the ${ord(p)} percentile.` : `${p}% are above ${V(v)}, so ${100 - p}% are below it.`, `Correct: <b>${right}</b>`],
+          metaTop: { mu, sigma: sd }, meta: { q: 'interpCut', dir, p, v, right },
+          signature: `3.4|normInterp|C|${ctx.key}|${mu}|${sd}|${dir}${p}`,
+        });
+      }
+      const x = pick(gridVals(ctx, mu, sd, 0.3, 2.0)), isLess = chance(0.5);
+      const P = 100 * (isLess ? normalCdf((x - mu) / sd) : 1 - normalCdf((x - mu) / sd));
+      if (P < 2) continue;
+      const ph = isLess ? ctx.lt(nu(ctx, nf(ctx, x))) : ctx.gt(nu(ctx, nf(ctx, x))), op = isLess ? ctx.gt(nu(ctx, nf(ctx, x))) : ctx.lt(nu(ctx, nf(ctx, x)));
+      const dp = fmt(P / 100, 4), ps = fmt(P, 2);
+      const right = `About ${ps}% of ${pl} ${ph}.`;
+      const wrong = [`About ${ps}% of ${pl} ${op}.`, `About ${dp}% of ${pl} ${ph}.`, `About ${fmt(100 - P, 2)}% of ${pl} ${ph}.`];
+      if (!distinctAll([right].concat(wrong))) continue;
+      return choiceProblem({
+        section: '3.4', type: 'normInterp', title: 'What does Desmos tell you?',
+        top: `${story}<p>Desmos shows ${hl(dp)} for ${eq(ND(mu, sd))} with Min = ${isLess ? '−∞' : raw(x)} and Max = ${isLess ? raw(x) : '∞'}.</p>`,
+        q: 'What does this number mean?', right, wrong,
+        hints: ['Desmos gives the <b>area</b> (a proportion between 0 and 1). Multiply by 100 for a percent.',
+          `Min = ${isLess ? '−∞' : raw(x)} and Max = ${isLess ? raw(x) : '∞'}: is that the area to the left or to the right of ${nf(ctx, x)}?`,
+          `${dp} = ${ps}%, for ${pl} that ${ph}.`],
+        sol: [`${dp} × 100 = ${ps}%. The region from ${isLess ? '−∞' : raw(x)} to ${isLess ? raw(x) : '∞'} is ${isLess ? 'below' : 'above'} ${nf(ctx, x)}.`, `Correct: <b>${right}</b>`],
+        metaTop: { mu, sigma: sd }, meta: { q: 'interpArea', x, isLess, P, right },
+        signature: `3.4|normInterp|A|${ctx.key}|${mu}|${sd}|${x}|${isLess}`,
+      });
+    }
+  }
+
+  function gen34(type) {
+    if (type === 'shadeArea') return gen34shade();
+    if (type === 'desmosSetup') return gen34setup();
+    if (type === 'normInterp') return gen34interp();
+    return gen34calc(type);
   }
 
   // =====================================================================
@@ -1684,9 +2385,10 @@
     const prop = chance(0.35);
     const what = prop ? 'What proportion' : 'What percent';
     const pLabel = prop ? 'Proportion (as a percent) =' : 'Percent =';
-    const pctPart = (P) => ({ kind: 'num', label: pLabel, unit: '%', answer: P, tol: 0.05, placeholder: 'e.g. 13.5' });
+    const pctPart = (P) => ({ kind: 'num', label: pLabel, unit: '%', answer: P, tol: PCT_TOL, placeholder: 'e.g. 13.5' });
+    // tails beyond 3σ (0.15% / 99.85%) are skipped: 0.3% and 99.7% (common slips) would land within the rounding tolerance
     const ks = [];
-    for (let k = -kMax; k <= kMax; k++) if (k !== 0) ks.push(k);
+    for (let k = -Math.min(kMax, 2); k <= Math.min(kMax, 2); k++) if (k !== 0) ks.push(k);
     if (kind === 'below' || kind === 'above') {
       const k = pick(ks);
       const isBelow = kind === 'below';
@@ -1711,17 +2413,19 @@
     }
     if (kind === 'between') {
       let k1, k2;
-      do { k1 = int(-kMax, kMax); k2 = int(-kMax, kMax); } while (!(k2 > k1) || (k2 - k1 === 1 && chance(0.6)));
+      // skip 49.85% (mean to ±3σ): its complement 50.15% and the slip 50% sit within the tolerance
+      do { k1 = int(-kMax, kMax); k2 = int(-kMax, kMax); } while (!(k2 > k1) || (k2 - k1 === 1 && chance(0.6)) || (k1 === 0 && k2 === 3) || (k1 === -3 && k2 === 0));
       const terms = betweenTerms(k1, k2);
       const P = sumTerms(terms);
       return {
         q: `${what} of ${ctx.pl} ${ctx.btw(f(k1), U(k2))}?`,
         parts: [pctPart(P)],
         locate: `${locate(k1)}<br>${locate(k2)}`,
-        add: `Add the pieces between ${f(k1)} and ${f(k2)}: ${eq(termsStr(terms) + ' = ?')}`,
+        add: terms.length === 1 ? `Only one piece of the picture lies between ${f(k1)} and ${f(k2)}. How big is it?`
+          : `Add the pieces between ${f(k1)} and ${f(k2)}: ${eq(termsStr(terms) + ' = ?')}`,
         sol: [
           `${locate(k1)} ${locate(k2)}`,
-          `Area between: ${eq(termsStr(terms))} = <b>${trim(P, 2)}%</b>`,
+          terms.length === 1 ? `That is one piece of the 68–95–99.7 picture: <b>${trim(P, 2)}%</b>` : `Area between: ${eq(termsStr(terms))} = <b>${trim(P, 2)}%</b>`,
         ],
         shade: [V(k1), V(k2)],
         meta: { q: kind, k1, k2 }, sig: `btw${k1}${k2}`,
@@ -1733,7 +2437,7 @@
       const pct = CUM[k];
       return {
         q: `Estimate the ${ctx.measure} at the <b>${ord(pct)} percentile</b> of the distribution.`,
-        parts: [{ kind: 'num', label: `${cap(ctx.measure)} =`, unit, answer: V(k), tol: roundTo(Math.max(1e-6, 0.01 * sd), 6) }],
+        parts: [{ kind: 'num', label: `${cap(ctx.measure)} =`, unit, answer: V(k), tol: normTol(V(k), sd) }],
         locate: `The ${ord(pct)} percentile has <b>${trim(pct, 2)}%</b> of the data below it. Which tick mark has exactly that much area to its left?`,
         add: `Area to the left of each tick, from μ − 3σ up to μ + 3σ: 0.15%, 2.5%, 16%, 50%, 84%, 97.5%, 99.85%.`,
         sol: [
@@ -1746,64 +2450,164 @@
         meta: { q: kind, k }, sig: `v${k}`,
       };
     }
-    // kSD: two parts
-    const k = pick(ks);
-    const isBelow = chance(0.5);
-    const terms = isBelow ? belowTerms(k) : aboveTerms(k);
-    const P = sumTerms(terms);
-    const that = ctx.that || 'that';
-    return {
-      q: `What ${ctx.measure} is <b>${Math.abs(k)} standard deviation${Math.abs(k) > 1 ? 's' : ''} ${k > 0 ? 'above' : 'below'}</b> the mean? Then: ${what.toLowerCase()} of ${ctx.pl} ${isBelow ? ctx.lt(that) : ctx.gt(that)}?`,
-      parts: [
-        { kind: 'num', label: `${cap(ctx.measure)} =`, unit, answer: V(k), tol: roundTo(Math.max(1e-6, 0.01 * sd), 6) },
-        pctPart(P),
-      ],
-      locate: `${k > 0 ? 'Add' : 'Subtract'} ${Math.abs(k)} SD${Math.abs(k) > 1 ? 's' : ''}: ${eq(`${nf(ctx, mu)} ${k < 0 ? '−' : '+'} ${Math.abs(k)} × ${nf(ctx, sd)}`)}.`,
-      add: `That value is the μ ${k < 0 ? '−' : '+'} ${Math.abs(k) === 1 ? '' : Math.abs(k)}σ tick. ` + (terms.length === 1
-        ? `Only the tiny tail beyond 3 SDs is ${isBelow ? 'to its left' : 'to its right'}.`
-        : `Add the pieces ${isBelow ? 'to its <b>left</b>' : 'to its <b>right</b>'}: ${eq(termsStr(terms) + ' = ?')}`),
-      sol: [
-        `${eq(`${nf(ctx, mu)} ${k < 0 ? '−' : '+'} ${Math.abs(k)} × ${nf(ctx, sd)}`)} = <b>${U(k)}</b>`,
-        terms.length === 1
-          ? `Only the tail beyond 3 SDs is ${isBelow ? 'below' : 'above'} ${f(k)}: <b>0.15%</b>`
-          : `Area ${isBelow ? 'below' : 'above'} ${f(k)}: ${eq(termsStr(terms))} = <b>${trim(P, 2)}%</b>`,
-      ],
-      shade: isBelow ? [-Infinity, V(k)] : [V(k), Infinity],
-      meta2: [{ q: 'kValue', k }, { q: isBelow ? 'below' : 'above', k }], sig: `k${k}${isBelow}`,
-    };
+    return null;
   }
 
-  function gen35(type, opts) {
+  function gen35calc(type) {
     const ctx = pick(NORM_CTX);
     const ms = pick(ctx.p35), mu = ms[0], sd = ms[1];
     const kMax = ctx.kMax || 3;
-    const ticks = [];
-    for (let k = -kMax; k <= kMax; k++) ticks.push({ v: mu + k * sd, label: nf(ctx, roundTo(mu + k * sd, 6)), prio: 2 - Math.abs(k) * 0.1 });
-    const svg = (extra) => normalSVG(Object.assign({ mu, sigma: sd, ticks, caption: ctx.caption }, extra || {}));
-    const kinds = [type];
-    if (opts.hard) {
-      const others = TYPES['3.5'].filter((t) => t !== type && t !== 'kSD');
-      kinds.push(pick(others));
-    }
-    const subs = kinds.map((k) => emp35Sub(k, ctx, mu, sd));
-    const subsC = subs.map((s) => ({ q: s.q, parts: s.parts, hints: [s.locate, s.add], sol: s.sol }));
+    const svg = (extra) => normalSVG(Object.assign({ mu, sigma: sd, ticks: empTicks(ctx, mu, sd, kMax), caption: ctx.caption }, extra || {}));
+    const sub = emp35Sub(type, ctx, mu, sd);
     const regionHint = `The 68–95–99.7 rule splits the curve into these pieces (they add up to 100%):${svg({ regions: true })}`;
-    const metaParts = [];
-    subs.forEach((s) => { if (s.meta2) metaParts.push.apply(metaParts, s.meta2); else metaParts.push(s.meta); });
-    const p = compose({
+    return compose({
       section: '3.5', type,
       title: { below: 'Empirical rule: below', above: 'Empirical rule: above', between: 'Empirical rule: in between',
-        valueAtPct: 'Empirical rule: percentile', kSD: 'Standard deviation steps' }[type],
+        valueAtPct: 'Empirical rule: percentile' }[type],
       top: `<p class="story">${ctx.story(nf(ctx, mu), nf(ctx, sd))}</p>${svg()}`,
-      subs: subsC,
-      bottom: `<p class="small">Use the empirical rule (68–95–99.7).${kinds.some((k) => k !== 'valueAtPct') ? ' Answer as a percent.' : ''}</p>`,
-      postSol: [`Shaded region${subs.length > 1 ? ' for part (a)' : ''}:${svg({ shade: subs[0].shade, regions: true })}`],
-      meta: { mu, sigma: sd, kMax, parts: metaParts },
-      signature: `3.5|${type}|${ctx.key}|${mu}|${sd}|${subs.map((s) => s.sig).join('|')}`,
+      subs: [{ q: sub.q, parts: sub.parts, hints: [sub.locate, regionHint, sub.add], sol: sub.sol }],
+      bottom: `<p class="small">Use the empirical rule (68–95–99.7).${type !== 'valueAtPct' ? ' Answer as a percent.' : ''}</p>`,
+      postSol: [`Shaded region:${svg({ shade: sub.shade, regions: true })}`],
+      meta: { mu, sigma: sd, kMax, parts: [sub.meta] },
+      signature: `3.5|${type}|${ctx.key}|${mu}|${sd}|${sub.sig}`,
     });
-    // hints: [locate, regions picture, add-up]
-    p.hints = [p.hints[0], regionHint, p.hints[1]];
-    return p;
+  }
+  function empTicks(ctx, mu, sd, kMax) {
+    const ticks = [];
+    for (let k = -kMax; k <= kMax; k++) ticks.push({ v: mu + k * sd, label: nf(ctx, roundTo(mu + k * sd, 6)), prio: 2 - Math.abs(k) * 0.1 });
+    return ticks;
+  }
+  function pick35() {
+    const ctx = pick(NORM_CTX), ms = pick(ctx.p35);
+    return { ctx, mu: ms[0], sd: ms[1], story: `<p class="story">${ctx.story(nf(ctx, ms[0]), nf(ctx, ms[1]))}</p>` };
+  }
+  const RULE = { 1: 68, 2: 95, 3: 99.7 };
+
+  // ---- about what percent ... within / above / below k SDs? ----
+  const SDPCT = [
+    { key: 'within', ks: [1, 2, 3], ans: (k) => RULE[k], words: (k) => `within ${sdN(k)} of the mean`,
+      wrong: (k) => ({ 1: [95, 34, 32, 84], 2: [68, 47.5, 5, 97.5], 3: [95, 68, 0.3] })[k],
+      why: (k) => `The 68–95–99.7 rule: about ${RULE[k]}% of values are within ${sdN(k)} of the mean.` },
+    { key: 'above', ks: [1, 2], ans: (k) => (k === 1 ? 16 : 2.5), words: (k) => `more than ${sdN(k)} above the mean`,
+      wrong: (k) => (k === 1 ? [32, 34, 84, 68] : [5, 47.5, 97.5, 95]),
+      why: (k) => `${RULE[k]}% are within ${sdN(k)}, so ${trim(100 - RULE[k], 2)}% are outside, split evenly between the two tails: ${trim((100 - RULE[k]) / 2, 2)}% above.` },
+    { key: 'below', ks: [1, 2], ans: (k) => (k === 1 ? 16 : 2.5), words: (k) => `more than ${sdN(k)} below the mean`,
+      wrong: (k) => (k === 1 ? [32, 34, 84, 68] : [5, 47.5, 97.5, 95]),
+      why: (k) => `${RULE[k]}% are within ${sdN(k)}, so ${trim(100 - RULE[k], 2)}% are outside, split evenly between the two tails: ${trim((100 - RULE[k]) / 2, 2)}% below.` },
+    { key: 'outside', ks: [1, 2], ans: (k) => 100 - RULE[k], words: (k) => `more than ${sdN(k)} away from the mean (in either direction)`,
+      wrong: (k) => (k === 1 ? [16, 68, 34, 84] : [2.5, 95, 47.5, 97.5]),
+      why: (k) => `${RULE[k]}% are within ${sdN(k)}, so 100% − ${RULE[k]}% = ${trim(100 - RULE[k], 2)}% are farther away.` },
+    { key: 'meanUp', ks: [1, 2], ans: (k) => RULE[k] / 2, words: (k) => `between the mean and ${sdN(k)} above the mean`,
+      wrong: (k) => (k === 1 ? [68, 16, 50, 84] : [95, 2.5, 50, 97.5]),
+      why: (k) => `${RULE[k]}% are within ${sdN(k)} (on both sides), and the curve is symmetric, so half of that, ${trim(RULE[k] / 2, 2)}%, is on one side.` },
+    { key: 'lessUp', ks: [1, 2], ans: (k) => 50 + RULE[k] / 2, words: (k) => `below the value that is ${sdN(k)} above the mean`,
+      wrong: (k) => (k === 1 ? [68, 34, 16] : [95, 47.5, 2.5]),
+      why: (k) => `50% are below the mean, plus ${trim(RULE[k] / 2, 2)}% between the mean and ${sdN(k)} above: 50% + ${trim(RULE[k] / 2, 2)}% = ${trim(50 + RULE[k] / 2, 2)}%.` },
+  ];
+  function gen35sdPct() {
+    for (;;) {
+      const S = pick35(), { ctx, mu, sd } = S, R = pick(SDPCT), k = pick(R.ks);
+      if (k > (ctx.kMax || 3)) continue;
+      const ans = R.ans(k), wrongs = shuffle(R.wrong(k).filter((w) => Math.abs(w - ans) > 0.5)).slice(0, 3);
+      const pctS = (x) => `${trim(x, 2)}%`;
+      const lo = mu - k * sd, hi = mu + k * sd;
+      return choiceProblem({
+        section: '3.5', type: 'sdPct', title: 'The 68–95–99.7 rule',
+        top: S.story, q: `About what percent of ${ctx.pl} have ${aOf(ctx.measure)} ${ctx.measure} ${R.words(k)}?`,
+        right: pctS(ans), wrong: wrongs.map(pctS),
+        hints: [
+          'About <b>68%</b> of values are within 1 SD of the mean, <b>95%</b> within 2 SDs, and <b>99.7%</b> within 3 SDs.',
+          `Here ${sdN(k)} from the mean is from ${nf(ctx, roundTo(lo, 6))} to ${nf(ctx, roundTo(hi, 6))}. Sketch it and shade the part you want.`,
+          'The curve is symmetric: whatever is not in the middle is split evenly between the two tails.',
+        ],
+        sol: [R.why(k), `So about <b>${pctS(ans)}</b> of ${ctx.pl} have ${aOf(ctx.measure)} ${ctx.measure} ${R.words(k)}.`],
+        metaTop: { mu, sigma: sd }, meta: { q: 'sdPct', rel: R.key, k, ans },
+        signature: `3.5|sdPct|${ctx.key}|${mu}|${sd}|${R.key}${k}|${wrongs.join(',')}`,
+      });
+    }
+  }
+
+  // ---- interpret the 68–95–99.7 rule in context ----
+  function gen35rule() {
+    for (;;) {
+      const S = pick35(), { ctx, mu, sd } = S, kMax = ctx.kMax || 3;
+      const k = int(1, Math.min(3, kMax));
+      const F = (v) => nf(ctx, roundTo(v, 6)), U = (v) => nu(ctx, F(v));
+      const lo = mu - k * sd, hi = mu + k * sd, pc = RULE[k];
+      const other = [1, 2, 3].filter((j) => j !== k && j <= kMax);
+      if (chance(0.5)) {
+        const k2 = pick(other);
+        const right = `About ${pc}% of ${ctx.pl} ${ctx.btw(F(lo), U(hi))}.`;
+        const wrong = [
+          `About ${RULE[k2]}% of ${ctx.pl} ${ctx.btw(F(lo), U(hi))}.`,
+          `About ${pc}% of ${ctx.pl} ${ctx.lt(U(hi))}.`,
+          `About ${pc}% of ${ctx.pl} ${ctx.btw(F(mu - k2 * sd), U(mu + k2 * sd))}.`,
+        ];
+        if (!distinctAll([right].concat(wrong))) continue;
+        return choiceProblem({
+          section: '3.5', type: 'ruleInterp', title: 'Which statement is true?',
+          top: S.story, q: 'According to the empirical rule, which statement is true?', right, wrong,
+          hints: [
+            '68% within 1 SD, 95% within 2 SDs, 99.7% within 3 SDs — always measured on <b>both</b> sides of the mean.',
+            `μ ± 1σ: ${F(mu - sd)} to ${F(mu + sd)}. μ ± 2σ: ${F(mu - 2 * sd)} to ${F(mu + 2 * sd)}.${kMax >= 3 ? ` μ ± 3σ: ${F(mu - 3 * sd)} to ${F(mu + 3 * sd)}.` : ''}`,
+            `Check each statement: does its percent match its interval? (“Less than ${F(hi)}” also includes the lower tail.)`,
+          ],
+          sol: [`${F(lo)} to ${F(hi)} is μ ± ${k}σ, which holds about ${pc}% of the values.`, `Correct: <b>${right}</b>`],
+          metaTop: { mu, sigma: sd }, meta: { q: 'ruleTrue', k, right },
+          signature: `3.5|ruleInterp|T|${ctx.key}|${mu}|${sd}|${k}|${k2}`,
+        });
+      }
+      const iv = (a, b) => `Between ${F(a)} and ${U(b)}`;
+      const right = iv(lo, hi);
+      const wrong = other.map((j) => iv(mu - j * sd, mu + j * sd)).concat([iv(mu, hi)]);
+      if (wrong.length < 2 || !distinctAll([right].concat(wrong))) continue;
+      return choiceProblem({
+        section: '3.5', type: 'ruleInterp', title: 'The middle ' + pc + '%',
+        top: S.story, q: `According to the empirical rule, the middle <b>${pc}%</b> of ${ctx.pl} have ${aOf(ctx.measure)} ${ctx.measure} …`, right, wrong,
+        hints: [
+          `The middle ${pc}% is centered at the mean and reaches ${sdN(k)} out on <b>each</b> side.`,
+          `Lower end: ${eq(`${F(mu)} − ${k === 1 ? '' : k + ' × '}${F(sd)}`)}. Upper end: ${eq(`${F(mu)} + ${k === 1 ? '' : k + ' × '}${F(sd)}`)}.`,
+          `${F(lo)} to ${F(hi)}.`,
+        ],
+        sol: [`Middle ${pc}% = within ${sdN(k)} of the mean: ${eq(`${F(mu)} ± ${k === 1 ? '' : k + ' × '}${F(sd)}`)}.`, `Correct: <b>${right}</b>`],
+        metaTop: { mu, sigma: sd }, meta: { q: 'ruleMiddle', k, right },
+        signature: `3.5|ruleInterp|M|${ctx.key}|${mu}|${sd}|${k}`,
+      });
+    }
+  }
+
+  // ---- which picture (described in standard deviations)? ----
+  function gen35shade() {
+    for (;;) {
+      const S = pick35(), { ctx, mu, sd } = S, kMax = Math.min(2, ctx.kMax || 3);
+      const k = int(1, kMax), k2 = k === 1 ? 2 : 1;
+      const V = (j) => roundTo(mu + j * sd, 6);
+      const R = pick(['within', 'above', 'below', 'outside', 'meanUp']);
+      const specs = {
+        within: [{ t: 'B', a: V(-k), b: V(k) }, { t: 'O', a: V(-k), b: V(k) }, { t: 'B', a: V(-k2), b: V(k2) }, { t: 'L', a: V(k) }],
+        above: [{ t: 'R', a: V(k) }, { t: 'L', a: V(k) }, { t: 'O', a: V(-k), b: V(k) }, { t: 'R', a: V(k2) }],
+        below: [{ t: 'L', a: V(-k) }, { t: 'R', a: V(-k) }, { t: 'O', a: V(-k), b: V(k) }, { t: 'L', a: V(-k2) }],
+        outside: [{ t: 'O', a: V(-k), b: V(k) }, { t: 'B', a: V(-k), b: V(k) }, { t: 'R', a: V(k) }, { t: 'O', a: V(-k2), b: V(k2) }],
+        meanUp: [{ t: 'B', a: V(0), b: V(k) }, { t: 'B', a: V(-k), b: V(k) }, { t: 'R', a: V(k) }, { t: 'B', a: V(0), b: V(k2) }],
+      }[R];
+      const words = {
+        within: `within ${sdN(k)} of the mean`, above: `more than ${sdN(k)} above the mean`, below: `more than ${sdN(k)} below the mean`,
+        outside: `more than ${sdN(k)} away from the mean`, meanUp: `between the mean and ${sdN(k)} above the mean`,
+      }[R];
+      const F = (v) => nf(ctx, roundTo(v, 6));
+      const p = shadeProblem({
+        section: '3.5', type: 'shade35', ctx, mu, sd, specs, phrase: `whose ${ctx.measure} is ${words}`,
+        hint2: `First find the values: μ ± σ = ${F(V(-1))} and ${F(V(1))}; μ ± 2σ = ${F(V(-2))} and ${F(V(2))}.`,
+      });
+      if (p) return p;
+    }
+  }
+
+  function gen35(type) {
+    if (type === 'sdPct') return gen35sdPct();
+    if (type === 'ruleInterp') return gen35rule();
+    if (type === 'shade35') return gen35shade();
+    return gen35calc(type);
   }
 
   // =====================================================================
@@ -1817,28 +2621,34 @@
     '3.4': { name: 'Normal Distributions (Desmos)', icon: '💻', color: '#7cf27f' },
     '3.5': { name: 'The Empirical Rule', icon: '🔔', color: '#ffd23f' },
   };
-  const TYPES = {
-    '3.1': ['pctOfValue', 'valueAtPct', 'dotplot', 'dotplotValue', 'interpret'],
-    '3.2': ['height', 'less', 'greater', 'between', 'percentile', 'mean'],
-    '3.3': ['single', 'compare', 'rank', 'unusual', 'findX'],
-    '3.4': ['less', 'greater', 'between', 'percentile', 'cutoff'],
-    '3.5': ['below', 'above', 'between', 'valueAtPct', 'kSD'],
+  // calc = compute a number (or a choice that needs a computation); interp = interpretation / picture choice
+  const CATEGORY = {
+    '3.1': { pctOfValue: 'calc', valueAtPct: 'calc', dotplot: 'calc', dotplotValue: 'calc',
+      interpret: 'interp', pctVsPercent: 'interp', higherPct: 'interp', whatIf: 'interp' },
+    '3.2': { height: 'calc', less: 'calc', greater: 'calc', between: 'calc', percentile: 'calc', mean: 'calc',
+      uniInterp: 'interp', validDensity: 'interp', interpMean: 'interp' },
+    '3.3': { single: 'calc', compare: 'calc', unusual: 'calc', findX: 'calc', zWords: 'interp', zSign: 'interp' },
+    '3.4': { less: 'calc', greater: 'calc', between: 'calc', percentile: 'calc', cutoff: 'calc',
+      shadeArea: 'interp', desmosSetup: 'interp', normInterp: 'interp' },
+    '3.5': { below: 'calc', above: 'calc', between: 'calc', valueAtPct: 'calc', sdPct: 'interp', ruleInterp: 'interp', shade35: 'interp' },
   };
-  // relative weights when the type is not forced
+  const TYPES = {};
+  SECTIONS.forEach((sec) => { TYPES[sec] = Object.keys(CATEGORY[sec]); });
+  // relative weights when the type is not forced (about 60% calc / 40% interp in every section)
   const WEIGHTS = {
-    '3.1': { pctOfValue: 3, valueAtPct: 3, dotplot: 2, dotplotValue: 2, interpret: 2 },
-    '3.2': { height: 1, less: 2, greater: 2, between: 2, percentile: 2, mean: 1 },
-    '3.3': { single: 2, compare: 3, rank: 2, unusual: 2, findX: 2 },
-    '3.4': { less: 2, greater: 2, between: 2, percentile: 2, cutoff: 2 },
-    '3.5': { below: 2, above: 2, between: 2, valueAtPct: 2, kSD: 1 },
+    '3.1': { pctOfValue: 3, valueAtPct: 3, dotplot: 2, dotplotValue: 2, interpret: 2, pctVsPercent: 1.5, higherPct: 1.5, whatIf: 1.5 },
+    '3.2': { height: 1, less: 2, greater: 2, between: 2, percentile: 2, mean: 1, uniInterp: 2.5, validDensity: 1.5, interpMean: 2 },
+    '3.3': { single: 2.5, compare: 3, unusual: 1.5, findX: 2, zWords: 3, zSign: 3 },
+    '3.4': { less: 2, greater: 2, between: 2, percentile: 2, cutoff: 2, shadeArea: 2.6, desmosSetup: 2, normInterp: 2 },
+    '3.5': { below: 2, above: 2, between: 2, valueAtPct: 2, sdPct: 2, ruleInterp: 1.5, shade35: 1.8 },
   };
-  // types used for boss shields (they get an extra part when opts.hard)
+  // boss shields (opts.hard) draw from the harder calculation types; still exactly one part
   const HARD_TYPES = {
-    '3.1': ['pctOfValue', 'valueAtPct', 'dotplot', 'dotplotValue'],
-    '3.2': ['less', 'greater', 'between', 'percentile', 'height'],
-    '3.3': ['compare', 'rank', 'unusual', 'single'],
+    '3.1': ['pctOfValue', 'valueAtPct', 'dotplot', 'dotplotValue', 'higherPct'],
+    '3.2': ['less', 'greater', 'between', 'percentile', 'validDensity'],
+    '3.3': ['single', 'compare', 'findX', 'unusual'],
     '3.4': ['less', 'greater', 'between', 'percentile', 'cutoff'],
-    '3.5': ['below', 'above', 'between', 'valueAtPct', 'kSD'],
+    '3.5': ['below', 'above', 'between', 'valueAtPct', 'shade35'],
   };
   const GEN = { '3.1': gen31, '3.2': gen32, '3.3': gen33, '3.4': gen34, '3.5': gen35 };
 
@@ -1862,16 +2672,17 @@
     let p = null;
     for (let tries = 0; tries < 30; tries++) {
       const type = opts.type || pickType(section, !!opts.hard);
-      p = GEN[section](type, { hard: !!opts.hard });
+      p = GEN[section](type);
       if (!avoid.has(p.signature)) break;
     }
     return p;
   }
 
   const API = {
-    SECTIONS, SECTION_INFO, TYPES, generate, check, normalCdf, invNorm,
+    SECTIONS, SECTION_INFO, TYPES, CATEGORY, generate, check, normalCdf, invNorm,
     parseNum,
-    _internal: { CUM, REG, belowTerms, aboveTerms, betweenTerms, sumTerms, countBelow, roundTo, fmt, trim, ord, normalSVG, uniformSVG, dotplotSVG, NORM_CTX },
+    _internal: { CUM, REG, belowTerms, aboveTerms, betweenTerms, sumTerms, countBelow, roundTo, fmt, trim, ord, normalSVG, uniformSVG, dotplotSVG,
+      miniNormalSVG, miniUniformSVG, MINI, COLORS: C, NORM_CTX, PCT_TOL, Z_TOL, normTol, uniTol, WEIGHTS, HARD_TYPES },
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
   else root.Problems = API;
