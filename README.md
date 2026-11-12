@@ -4,9 +4,9 @@ A top-down dungeon crawler for reviewing **Intro to Stats B, Unit 3: Distributio
 It runs in any browser, including Chromebooks, with nothing to install, and the whole
 game fits on one screen with no scrolling.
 
-Mr. Laporte (pixel-for-pixel the same as in *Study Hall Simulator*) is your guide. He runs
-in at the start, explains the quest, shows up with tips and help along the way, and... well,
-you'll see what happens on Floor 5.
+Mr. Laporte (based on the *Study Hall Simulator* portrait) is your guide. He runs
+in at the start, asks who you are again (students pick a boy or girl character), explains the quest,
+shows up with tips and help along the way, and... well, you'll see what happens on Floor 5.
 
 ## Floors and sections
 
@@ -24,12 +24,16 @@ based on that section.
 
 ## How the math works
 
-* **🔒 Stat Chests** (after fights) and **🏆 Golden Stat Chests** give power-ups.
-* **⛲ Shrines of the Mean** heal you.
-* **🔮 Shield runes** break a boss's shield.
-* Answers are mostly **typed numbers**, with reasonable rounding accepted. For example, 58.33% accepts
-  58 or 58.3, z-scores accept two decimal places, and Desmos answers allow small rounding
-  differences. Comparisons and interpretations ("whose catch was better?") are **multiple choice**.
+* **🔒 Stat Chests** (after some fights) and one **🏆 Golden Stat Chest** per floor give power-ups.
+  About half of the after-fight chests are free **supply crates**, every floor has a free **vault**, and
+  sometimes Mr. Laporte runs in and says "I got this one!" and solves a chest for you. Each floor asks
+  roughly **3–4 questions**.
+* **⛲ A Shrine of the Mean** (one per floor) heals you.
+* **🔮 A shield rune** breaks a boss's shield (once per boss). The final fight has **no questions**.
+* **Every question has one answer**: either a typed number or a multiple-choice pick (including
+  interpretation questions and "which picture shows this shaded area?" questions).
+* **Rounding is generous**: rounding up or down to a whole number is accepted for percents and
+  percentiles, z-scores can be off by a few hundredths, and Desmos answers allow rounding.
 * **Percentiles use "percent of values *below*"** (TPS style): 84 in
   34, 42, 51, 65, 69, 74, 78, 84, 85, 85, 86, 87 is the 58th percentile.
 * **Section 3.4 is done in Desmos** in another tab. The problem window has an "Open Desmos"
@@ -50,21 +54,48 @@ based on that section.
 ## Two class periods: saving
 
 The game **saves automatically at the start of every floor** (in that browser's local storage).
-Next class, students press **Continue** on the title screen. If they're defeated, they can retry
-that floor and keep all of their power-ups.
+Next class, students press **Continue** on the title screen.
+
+If a student is defeated, they go back to the start of that floor. They lose the power-ups they found
+on that floor (but keep everything from earlier floors), and **every problem they already solved on
+that floor becomes a free solve** so they don't have to redo work. Dying in the final fight puts them
+right back into the final fight.
+
+## Teacher options (PIN 9631)
+
+In **Settings → 🔐 Teacher options**, enter the PIN to:
+* **Skip problems**: chests, shrines and shields open instantly, for fast playtesting. A red
+  "TEACHER MODE" tag shows on screen while it's on, so you'll notice if it's left on.
+* **Start on floor N** with a few random upgrades.
+
+These are saved on that computer only. To change the PIN, open the browser console on the game page, run `DQ.pinHash('1234')` with the
+new PIN, and paste the result into `PIN_HASH` in `js/game.js`.
 
 The end screen shows the student's name, problems solved per section, play time, and a report code
 like `F6-S38-A45-P27-WJS` (floor reached, solved, attempted, perfect, Win/Loss + initials)
 that they can screenshot or paste into a Google Form.
 
+## Enemies and upgrades
+
+Monsters get much tougher on each floor, and bosses take real effort. Besides slimes, bats, skeleton
+archers, boars, eyeballs and ghosts there are **Box Plot Knights** (their box-plot shield blocks shots
+from the front), **Dice Cubes** (fire as many shots as the number they roll), **Sigma Spiders** (their
+webs slow you), **Bell Bombers** (ring, then explode) and **Skew Wraiths** (dash in lopsided curves).
+
+Plain stat boosts are uncommon. Most power-ups have unique, visible effects, for example: Standard Deviation
+Orbitals, Bell Curve Boomerang, Regression Laser, Bootstrap Clones, Random Walk Rockets, Chalk Trail,
+Stem-and-Leaf Vines, Percentile Piñata, Pie Chart Buzzsaw, Tail Event meteors, A+ Grading crits,
+Normal Nova, Z-Score Zapper, Empirical Aura and the Edamame Bean Blaster. Hover over any power-up in the
+top bar to see what it does. Shop items show their effect when you walk up to them.
+
 ## Easter eggs and surprises
 
-* **The Teachers' Lounge:** a hidden room behind a **cracked wall** in a fight room. Shoot the
-  cracks 3 times to open it. Mr. Laporte is inside and is not happy to see you. The
+* **The Teachers' Lounge:** a hidden room behind a **glowing cracked wall** (with a little "STAFF?" sign)
+  in a fight room on most floors. Shoot the cracks 3 times to open it. Mr. Laporte is inside and is not happy to see you. The
   **staff-only coffee machine** gives a choice of powerful STAFF upgrades (Faculty Coffee,
   Red Pen of Truth, Staff Lanyard, Sub Plans), the couch fully heals you, and there's a
   bulletin board and a fridge.
-* **Edamame:** Mr. Laporte's bowl of edamame in the lounge, rare edamame drops, and edamame in the
+* **Edamame (single dried beans):** Mr. Laporte's bowl in the lounge, rare drops, and the
   vending machine. Each one heals and gives **Protein Power** (+50% damage). Eat 5 and
   **Eddie the Edamame** joins your party. There's also the **Edamame Bean Blaster** item.
   Typing `EDAMAME` (on the title screen, or once per run while playing) is a secret shortcut.

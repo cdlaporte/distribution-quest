@@ -150,7 +150,7 @@
     for (let y = 2; y < 15; y++) for (let x = 0; x < 32; x++) {
       const dx = Math.abs(x + 0.5 - 16);
       const inHair = (dx / 9.6) ** 2 + ((y + 0.5 - 14) / 11) ** 2 <= 1;
-      const hairline = dx < 2 ? 7 : dx < 3 ? 6 : dx < 4 ? 5 : dx < 6 ? 4 : dx < 7 ? 6 : 12;
+      const hairline = dx < 1.5 ? 9 : dx < 2.5 ? 7 : dx < 3.5 ? 5 : dx < 6.5 ? 4 : dx < 7.5 ? 6 : 12;
       if (!inHair || y >= hairline) continue;
       const side = clamp((dx - 1) / 7, 0, 1);
       const low = clamp((y - 2) / 10, 0, 1);
@@ -243,7 +243,7 @@
       if (e <= 1) set(x, y, e > 0.7 && x + 0.5 > 16 ? skinSh : skin);
     }
     set(16, 15, skinSh); set(16, 16, skinSh); set(15, 17, skinSh); set(16, 17, skinSh);
-    const stub = (x, y) => set(x, y, (x + y) % 2 ? '#a07a5e' : '#b88f70');
+    const stub = (x, y) => set(x, y, (x + y) % 2 ? '#c29a7a' : '#d3ad8c');
     for (let x = 13; x <= 18; x++) if ((x + 18) % 2 === 0) stub(x, 18);
     for (let x = 12; x <= 19; x++) stub(x, 19);
     stub(12, 20); stub(12, 21); stub(19, 20); stub(19, 21); stub(13, 21); stub(18, 21); stub(15, 21); stub(16, 21);
@@ -373,7 +373,7 @@
   // Characters
   // ------------------------------------------------------------------
   const LAP_PAL = {
-    h: HAIR_COL, H: HAIR_DK, i: HAIR_HI, k: '#f6cfa6', s: '#e2ae88', e: '#1b1b1b', w: '#ffffff', b: '#a88466', m: '#6e2c1f',
+    h: HAIR_COL, H: HAIR_DK, i: HAIR_HI, k: '#f6cfa6', s: '#e2ae88', e: '#1b1b1b', w: '#ffffff', b: '#c9a07e', m: '#6e2c1f',
     n: '#24395e', N: '#1a2a47', g: '#8f9399', G: '#6e7277', c: '#b3b7bd', u: '#ecf0f1', z: '#3a3d42',
     p: '#4b4f5c', P: '#363944', o: '#3a2618', O: '#22160d', r: '#f2a48a',
   };
@@ -381,7 +381,7 @@
   const LAP_TOP = [
     '....iihhii....',
     '...hhhhhhhh...',
-    '..Hhhkhhkhh...',
+    '..Hhkkhhkkhh..',
     '..Hkkkhhkkkh..',
     '..skkkkkkkks..',
     '.sHHkkkkkHHks.',
@@ -448,7 +448,7 @@
 
   // The hero: a student in a hoodie with a backpack and a glowing calculator
   const HERO_PAL = {
-    h: '#3b2a20', H: '#2a1d16', k: '#f1c7a1', s: '#d9a57f', e: '#1b1b1b', w: '#ffffff',
+    h: '#3b2a20', H: '#2a1d16', k: '#dfae86', s: '#c48f68', v: '#8e5bd6', V: '#6a3fb0', L: '#c7a6ff', e: '#1b1b1b', w: '#ffffff',
     t: '#2bb5a0', T: '#1d8676', l: '#7fe6d4', b: '#e8833a', B: '#b85f22', j: '#3b4a74', J: '#2a3555', o: '#e9e9ef', O: '#9fa3b5',
   };
   const HERO_FRONT = [
@@ -458,7 +458,7 @@
     '.hkkkkkkkkh.',
     '.hkwekkwekh.',
     '..kkkkkkkk..',
-    '..skkssksk..',
+    '..kkkmmkkk..',
     '...tlttlt...',
     '.bttttttttb.',
     'kbtTttttTtbk',
@@ -486,9 +486,70 @@
     ['..jj.....jj.', '.oo......oo.'],
     ['...jj..jj...', '...oo..oo...'],
   ];
-  function heroSprite(back, frame) {
-    return cached('hero' + (back ? 'b' : 'f') + frame, () => fromRows((back ? HERO_BACK : HERO_FRONT).concat(HERO_LEGS[frame]), HERO_PAL, 3));
+  const GIRL_FRONT = [
+    '..hhhhhhhh..',
+    '.hhhhhhhhhh.',
+    '.hhkhhhhkhh.',
+    'hhkkkkkkkkhh',
+    'hhkwekkwekhh',
+    'hhkkkkkkkkhh',
+    'hhskkmmkkshh',
+    '.hvLvvvvLvh.',
+    '.bvvvvvvvvb.',
+    'kbvVvvvvVvbk',
+    'k.vVvvvvVv.k',
+    '..vvvvvvvv..',
+    '..jjjjjjjj..',
+  ];
+  const GIRL_BACK = [
+    '..hhhhhhhh..',
+    '.hhhhhhhhhh.',
+    '.hhhhhhhhhh.',
+    'hhhhhhhhhhhh',
+    'hhHhhhhhhHhh',
+    'hhhhhhhhhhhh',
+    'hhhhhhhhhhhh',
+    '.hbbbbbbbbh.',
+    '.vbBBBBBBbv.',
+    'kvbBbbbbBbvk',
+    'k.bBBBBBBb.k',
+    '..vbbbbbbv..',
+    '..jjjjjjjj..',
+  ];
+  const HERO_MOUTH = { m: '#a8584a' };
+  function heroSprite(back, frame, kind) {
+    const girl = kind === 'girl';
+    return cached('hero' + (girl ? 'g' : 'b') + (back ? 'b' : 'f') + frame, () => fromRows(
+      (girl ? (back ? GIRL_BACK : GIRL_FRONT) : (back ? HERO_BACK : HERO_FRONT)).concat(HERO_LEGS[frame]), Object.assign({}, HERO_PAL, HERO_MOUTH), 3));
   }
+
+  // The substitute teacher (Sub Plans): gray hair, glasses, mustache, tweed jacket, coffee mug
+  const SUB_PAL = { g: '#cfcfcf', G: '#2a2a2a', k: '#f0c9a8', s: '#d9a888', w: '#ffffff', M: '#b0b0b0', m: '#7a3a2a', t: '#8a6a4a', T: '#6a4f36', c: '#e2dccc', r: '#b03030', o: '#eef0f6', O: '#9aa3b5', p: '#4a4a55', b: '#2a1d14' };
+  const SUB_ROWS = [
+    '....gggggg....',
+    '...gggggggg...',
+    '..gkkkkkkkkg..',
+    '..gkkkkkkkkg..',
+    '..kGGGkkGGGk..',
+    '..kGwGGGGwGk..',
+    '..kGGGkkGGGk..',
+    '..kkkkssskkk..',
+    '..kkMMMMMMkk..',
+    '...kkmmmmkk...',
+    '....kkkkkk....',
+    '.....ssss.....',
+    '..ttcwrrwctt..',
+    '.tttcwrrwcttt.',
+    'tTtttwrrwtttTt',
+    'tTtttwrrwtttTt',
+    'tk.tttrrttt.oO',
+    '...tttttttt.oo',
+    '...pppppppp...',
+    '...pp....pp...',
+    '...pp....pp...',
+    '..bbb....bbb..',
+  ];
+  const subSprite = () => cached('sub', () => fromRows(SUB_ROWS, SUB_PAL, 3));
 
   // Security guard (red uniform)
   const GUARD_PAL = { c: '#c0392b', C: '#8e2a20', v: '#f1c40f', k: '#e0ac69', s: '#c48a4f', e: '#1b1b1b', r: '#e74c3c', R: '#a93226', p: '#2c3e50', o: '#151515', w: '#ffffff' };
@@ -619,14 +680,14 @@
     p.rows(0, 0, rows, { R, D, L });
     if (half) for (let y = 0; y < 10; y++) for (let x = 6; x < 11; x++) if (p.get(x, y)) p.px(x, y, '#3a2a40');
   }));
-  const edamameSprite = () => cached('edamame', () => sprite(16, 9, 3, (p) => {
-    const T = ['#3c7a24', '#5fae3a', '#8fd65c', '#c9f59b'];
-    for (let i = 0; i < 3; i++) p.ball(3 + i * 5, 4 + (i === 1 ? -0.5 : 0.5), 3, 3.4, T);
-    p.rect(1, 5, 14, 1, '#4a8f2c');
-    p.line(14, 3, 15, 1, '#3c7a24');
-    p.px(2, 2, '#e4ffcc'); p.px(7, 1, '#e4ffcc'); p.px(12, 2, '#e4ffcc');
+  const edamameSprite = () => cached('edamame', () => sprite(11, 8, 3, (p) => {
+    // one dry-roasted edamame bean: oval, khaki green with toasted speckles and a seam
+    p.ball(5.5, 4, 5.2, 3.6, ['#5f6b25', '#8e9c3c', '#b9c463', '#e6ebae']);
+    p.line(2, 4, 8, 3, '#6f7a2c');
+    p.px(3, 2, '#a07a3a'); p.px(7, 5, '#a07a3a'); p.px(5, 6, '#8a6a30');
+    p.px(3, 1, '#f4f6d0'); p.px(4, 1, '#f4f6d0');
   }));
-  const beanSprite = () => cached('bean', () => sprite(5, 5, 3, (p) => p.ball(2.5, 2.5, 2.4, 2.4, ['#3c7a24', '#6cc24a', '#9be36b', '#d4ffb0'])));
+  const beanSprite = () => cached('bean', () => sprite(4, 3, 3, (p) => p.ball(2, 1.5, 2, 1.5, ['#5f6b25', '#8e9c3c', '#b9c463', '#e6ebae'])));
 
   function chestSprite(kind, open) {
     return cached('chest' + kind + open, () => sprite(22, 18, 3, (p) => {
@@ -973,9 +1034,44 @@
     glow(ctx, x, y - 6, 120 + f * 4, color || 'rgba(255,170,90,1)', 0.22);
   }
 
+
+  // ---- new enemies ----
+  function knightSprite(color, f) {
+    return cached('knight' + color + f, () => sprite(18, 22, 3, (p) => {
+      const M = ['#4a5060', '#7a8294', '#aab3c6', '#e3e9f5'];
+      const T = tones(color);
+      // plume
+      p.rect(8, 0, 3, 3, T[2]); p.px(9, 0, T[3]);
+      // helmet
+      p.ball(9, 6, 5, 4.5, M);
+      p.rect(5, 6, 9, 2, '#1b1b1b'); p.px(7, 6, '#ff5f5f'); p.px(11, 6, '#ff5f5f');
+      // armored body
+      p.ball(9, 13, 6, 5, M);
+      p.rect(6, 12, 7, 2, T[1]); p.rect(6, 12, 7, 1, T[2]);
+      const k = f ? 1 : 0;
+      p.rect(6 - k, 17, 2, 4, M[0]); p.rect(11 + k, 17, 2, 4, M[0]);
+      // sword
+      p.rect(16, 6, 1, 10, '#d8dde8'); p.rect(15, 15, 3, 1, '#c89411');
+    }));
+  }
+  function spiderSprite(color, f) {
+    return cached('spider' + color + f, () => sprite(24, 16, 3, (p) => {
+      const T = tones(color);
+      for (let i = 0; i < 4; i++) {
+        const y = 5 + i * 2, k = (i + f) % 2;
+        p.line(9, y, 2, y - 3 + k * 4, T[0]); p.line(2, y - 3 + k * 4, 0, y + 2 + k, T[0]);
+        p.line(15, y, 22, y - 3 + (1 - k) * 4, T[0]); p.line(22, y - 3 + (1 - k) * 4, 24, y + 2 + k, T[0]);
+      }
+      p.ball(12, 9, 6, 5, T);
+      p.ball(12, 4, 3.5, 3, T);
+      p.px(11, 3, '#ff3b3b'); p.px(13, 3, '#ff3b3b'); p.px(10, 4, '#ff3b3b'); p.px(14, 4, '#ff3b3b');
+      p.px(11, 6, '#ffffff'); p.px(13, 6, '#ffffff');
+    }));
+  }
+
   DQ.Art = {
     OUTLINE, TAU, painter, bake, sprite, fromRows, cached, blit, shadow, glow, shade, tones, rrect,
-    drawPortrait, buildFace, laporteSprite, drawManeSprite, heroSprite, guardSprite,
+    drawPortrait, buildFace, laporteSprite, drawManeSprite, heroSprite, guardSprite, subSprite, knightSprite, spiderSprite,
     slimeSprite, batSprite, ghostSprite, archerSprite, boarSprite, eyeSprite,
     coinSprite, heartSprite, edamameSprite, beanSprite, chestSprite,
     bosses: { rankenstein, monolith, zed, bell, emperor },

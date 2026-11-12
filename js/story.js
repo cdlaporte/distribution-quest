@@ -9,13 +9,17 @@
   const DQ = (window.DQ = window.DQ || {});
 
   DQ.Story = {
-    intro: [
+    intro1: [
       { e: 'shocked', t: "Wait! WAIT! Don't go down there without me!" },
-      { e: 'happy', t: "Whew. Hi! It's me, Mr. Laporte, your friendly neighborhood stats teacher." },
+      { e: 'happy', t: "Whew. Oh, hey there, student! It's me, Mr. Laporte, your friendly neighborhood stats teacher." },
+      { e: 'shocked', t: '...Wait. Who are you again? I have a LOT of students. Remind me?' },
+    ],
+    intro2: (name, hero) => [
+      { e: 'excited', t: name ? `Right, of course! ${name}! I knew that. I definitely knew that.` : `Right, of course! I knew that. I definitely knew that.` },
       { e: 'serious', t: 'Listen closely. Below us is the Distribution Dungeon: five floors, and each one is guarded by a monster that feeds on Unit 3 statistics.' },
       { e: 'calm', t: 'Percentiles. Uniform distributions. z-scores. Normal distributions. The Empirical Rule. One guardian for each section.' },
       { e: 'serious', t: 'At the very bottom lives the most powerful of them all: the Empirical Emperor. Legend says he guards a secret that could change a person... FOREVER.' },
-      { e: 'happy', t: "The good news? Every lock in this dungeon opens with math, and you've been practicing!" },
+      { e: 'happy', t: "The good news? The locks in this dungeon open with math, and you've been practicing!" },
       { e: 'calm', t: 'Use W A S D to move, the arrow keys (or the mouse) to shoot, Space to dash, and E to open things. Wrong answers never hurt you, so take your time.' },
       { e: 'excited', t: "I'm your ally on this quest, and I'll pop in when you need me. Now go make me proud! I have... uh... papers to grade." },
     ],
@@ -172,7 +176,15 @@
       { e: 'smug', hair: 0, t: "...We're still having a quiz on Friday, though." },
     ],
     endWin: "You beat the dungeon AND me. Your stats skills are in the 100th percentile... wait, that's impossible. Let's call it the 99th.",
-    endLose: "Don't worry, I dragged you back to the stairwell. You can try this floor again with all of your power-ups.",
+    endLose: (f, n) => `Don't worry, I'll drag you back to the start of Floor ${f}. You'll lose the power-ups you found on this floor, but you keep everything from earlier floors${n ? `, and the ${n} problem${n === 1 ? '' : 's'} you already solved here will be free` : ''}.`,
+    retry: (f, n) => [
+      { e: 'calm', t: `Back to the start of Floor ${f}. Deep breath. The dungeon has been rearranged, so keep your eyes open.` },
+      ...(n ? [{ e: 'happy', t: `And since you already solved ${n} problem${n === 1 ? '' : 's'} on this floor, the next ${n === 1 ? 'one is' : n + ' are'} on the house!` }] : []),
+    ],
+    freeSolve: "You already solved one of these before you got knocked out. This one's on the house!",
+    lapSolveStart: ['Ooh, a Stat Chest! Hold on, let me get this one!', 'Wait wait wait, I LOVE this kind of problem!', 'Step aside, I got this one!'],
+    lapSolveDone: ["Done! Easy. Here's your upgrade!", "Solved it! Don't tell the other teachers.", 'Ha! Still got it. Pick your prize!'],
+    finalRetry: 'Back for more?! My mane and I have been WAITING for you!',
     defeatLines: {
       bat: ['Defeated by a bat. A BAT.', 'The bat would like everyone to know it did this on purpose.'],
       slime: ['Absorbed by a slime. It says you were delicious.', 'Defeated by the weakest monster in the dungeon. Bold strategy.'],

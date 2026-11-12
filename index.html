@@ -121,6 +121,25 @@
   .shake { animation: shake 0.35s; }
   @keyframes shake { 0%,100% { transform: translateX(0); } 20% { transform: translateX(-10px); } 40% { transform: translateX(10px); } 60% { transform: translateX(-6px); } 80% { transform: translateX(6px); } }
 
+  .choice svg { display: block; width: 150px; height: auto; margin: 4px auto 0; }
+  .choices:has(svg) .choice { padding: 6px 8px; text-align: center; }
+
+  /* character select */
+  #charsel { background: rgba(4,3,10,0.45); align-items: flex-start; padding-top: 6vh; }
+  .cs-title { font-family: var(--pixel); font-size: 20px; color: var(--gold); text-align: center; line-height: 1.5; margin: 4px 0 14px; }
+  .cs-cards { display: flex; gap: 26px; justify-content: center; }
+  .cs-card { font: inherit; width: 220px; padding: 18px 12px 14px; border-radius: 18px; border: 4px solid var(--line); background: radial-gradient(circle at 50% 30%, #2e2650, #15112a 75%); color: var(--text); cursor: pointer; box-shadow: 0 6px 0 #0b0916; transition: transform 0.12s; }
+  .cs-card img { width: 120px; image-rendering: pixelated; display: block; margin: 0 auto 8px; animation: bob 0.9s ease-in-out infinite; }
+  .cs-card .cn { font-size: 22px; font-weight: 900; }
+  .cs-card .ck { font-size: 13px; color: var(--muted); }
+  .cs-card.sel { border-color: var(--gold); transform: translateY(-6px) scale(1.04); }
+  @keyframes bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+  .pin-input { font: inherit; font-size: 34px; letter-spacing: 14px; text-align: center; width: 200px; padding: 10px; border-radius: 10px; border: 3px solid var(--line); background: #0d0b18; color: var(--text); margin-top: 6px; }
+  .pin-input:focus { border-color: var(--teal); outline: none; }
+  .pin-msg { min-height: 24px; color: var(--red); font-weight: 800; margin-top: 8px; }
+  .t-row { display: flex; gap: 12px; align-items: center; font-size: 18px; margin: 10px 0; }
+  .t-row select { font: inherit; font-size: 18px; padding: 6px 10px; border-radius: 8px; background: #0d0b18; color: var(--text); border: 2px solid var(--line); }
+
   /* item pick */
   #pick-cards { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; margin-top: 12px; }
   .card { font: inherit; width: 230px; padding: 16px 12px; border-radius: 16px; border: 3px solid var(--line); background: radial-gradient(circle at 50% 20%, #2e2650, #1c1733 70%); color: var(--text); cursor: pointer; transition: transform 0.1s; box-shadow: 0 6px 0 #0b0916; }
@@ -210,7 +229,44 @@
     <label class="chk"><input type="checkbox" id="set-extra"> Extra practice: more locked Stat Chests show up after fights</label>
     <label class="chk"><input type="checkbox" id="set-sound"> Sound effects</label>
     <div class="warn" id="set-warn"></div>
-    <div class="row"><button class="btn primary" data-back>Done</button></div>
+    <div class="row"><button class="btn primary" data-back>Done</button><button class="btn ghost small" id="btn-teacher">🔐 Teacher options</button></div>
+  </div>
+</div>
+
+<!-- Teacher PIN -->
+<div id="pin" class="overlay screen hidden">
+  <div class="panel" style="width:min(420px,100%);text-align:center">
+    <h2>🔐 Teacher options</h2>
+    <p class="note">Enter the teacher PIN.</p>
+    <input id="pin-input" class="pin-input" type="password" inputmode="numeric" maxlength="4" autocomplete="off" aria-label="Teacher PIN">
+    <div id="pin-msg" class="pin-msg"></div>
+    <div class="row"><button class="btn primary" id="pin-ok">Unlock</button><button class="btn" id="pin-back">Back</button></div>
+  </div>
+</div>
+
+<!-- Teacher options -->
+<div id="teacher" class="overlay screen hidden">
+  <div class="panel" style="width:min(620px,100%)">
+    <h2>🍎 Teacher options</h2>
+    <p class="note">These are saved on this computer only. Students can't open this page without the PIN.</p>
+    <label class="chk"><input type="checkbox" id="t-skip"><span><b>Skip problems</b>: chests, shrines and boss shields open instantly (for playtesting). A "TEACHER MODE" tag shows on screen while this is on.</span></label>
+    <div class="t-row">Start a new game on
+      <select id="t-floor"><option value="1">Floor 1 (normal)</option><option value="2">Floor 2</option><option value="3">Floor 3</option><option value="4">Floor 4</option><option value="5">Floor 5</option></select>
+      <span class="note">(with a few upgrades)</span>
+    </div>
+    <div class="row"><button class="btn primary" id="t-back">Done</button></div>
+  </div>
+</div>
+
+<!-- Character select -->
+<div id="charsel" class="overlay hidden">
+  <div class="panel" style="width:min(620px,100%);text-align:center;background:rgba(21,17,42,0.94)">
+    <div class="cs-title">Who are you?</div>
+    <div class="cs-cards">
+      <button class="cs-card" id="cs-boy"><img id="cs-img-boy" alt=""><div class="cn">Boy</div><div class="ck">press 1 or ←</div></button>
+      <button class="cs-card" id="cs-girl"><img id="cs-img-girl" alt=""><div class="cn">Girl</div><div class="ck">press 2 or →</div></button>
+    </div>
+    <p class="note" style="margin-top:12px">Click one, or use the arrow keys and press Enter.</p>
   </div>
 </div>
 
