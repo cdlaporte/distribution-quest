@@ -57,7 +57,7 @@ function htmlStrings(p) {
   return [p.title, p.promptHTML].concat(p.hints, p.solution, p.parts.map((q) => q.label),
     p.parts.filter((q) => q.kind === 'choice').reduce((a, q) => a.concat(q.options), []));
 }
-const svgSizes = [];
+let maxSvgHeight = 0;
 function checkShape(p, section, type) {
   assert.strictEqual(p.section, section, 'section');
   if (type) assert.strictEqual(p.type, type, 'type');
@@ -86,7 +86,7 @@ function checkShape(p, section, type) {
       }
       const w = Number(svg.match(/width="(\d+)"/)[1]), ht = Number(svg.match(/height="(\d+)"/)[1]);
       assert(w <= 560 && ht <= 200, `svg too big ${w}x${ht}`);
-      svgSizes.push(ht);
+      maxSvgHeight = Math.max(maxSvgHeight, ht);
     }
     // balanced simple tags
     for (const tag of ['b', 'p', 'span', 'div', 'i']) {
@@ -494,7 +494,7 @@ test('API surface and errors', () => {
 // ---------------------------------------------------------------------------
 console.log('\nPrompt text length (chars, excluding data lists & diagrams) and variety per type:');
 for (const [k, v] of Object.entries(promptStats)) console.log(`  ${k.padEnd(18)} max ${String(v.maxPromptChars).padStart(4)}  distinct ${v.distinct}`);
-if (svgSizes.length) console.log(`SVG heights: max ${Math.max(...svgSizes)}px`);
+console.log(`SVG heights: max ${maxSvgHeight}px`);
 
 if (process.argv.includes('--samples')) {
   for (const section of P.SECTIONS) {

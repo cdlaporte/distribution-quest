@@ -678,7 +678,7 @@
   // --- interpretation ---
   const INTERP = [
     (k) => {
-      const nm = pick(NAMES), v = int(68, 96);
+      const nm = pick(NAMES), v = clamp(Math.round(52 + 0.42 * k + unif(-3, 3)), 40, 99);
       return {
         story: `${nm} scored ${v} on a chemistry test. That score is at the ${hl(ord(k) + ' percentile')} of the class.`,
         correct: `${k}% of the students in the class scored lower than ${v}.`,
@@ -696,7 +696,7 @@
       };
     },
     (k) => {
-      const nm = pick(NAMES), mm = int(21, 32), ss = int(0, 59);
+      const nm = pick(NAMES), mm = Math.round(19 + 0.13 * k + unif(-1, 1)), ss = int(0, 59);
       const t = `${mm}:${String(ss).padStart(2, '0')}`;
       return {
         story: `${nm} ran a 5K race in ${t}. That time is at the ${hl(ord(k) + ' percentile')} of all finishing times in the race.`,
@@ -706,7 +706,7 @@
       };
     },
     (k) => {
-      const sal = pick(SALADS), v = int(15, 45) * 10;
+      const sal = pick(SALADS), v = clamp(Math.round((120 + 3.6 * k + unif(-20, 20)) / 10) * 10, 80, 520);
       return {
         story: `The ${sal} Salad has ${v} calories, which is at the ${hl(ord(k) + ' percentile')} of calorie counts for the salads on the menu.`,
         correct: `${k}% of the salads on the menu have fewer calories than the ${sal} Salad.`,
@@ -716,7 +716,7 @@
       };
     },
     (k) => {
-      const nm = pick(NAMES), v = int(30, 75);
+      const nm = pick(NAMES), v = Math.round(24 + 0.5 * k + unif(-3, 3));
       return {
         story: `${nm} types ${v} words per minute, which is at the ${hl(ord(k) + ' percentile')} for students in keyboarding class.`,
         correct: `${k}% of the students in the class type slower than ${v} words per minute.`,
@@ -725,7 +725,7 @@
       };
     },
     (k) => {
-      const nm = pick(NAMES), v = int(3, 14);
+      const nm = pick(NAMES), v = Math.max(1, Math.round(2 + k / 9 + unif(-1, 1)));
       return {
         story: `Sir ${nm} brought back ${v} dragon eggs from the quest, which is at the ${hl(ord(k) + ' percentile')} among the knights of the guild.`,
         correct: `${k}% of the knights brought back fewer than ${v} eggs.`,
@@ -734,7 +734,7 @@
       };
     },
     (k) => {
-      const nm = pick(NAMES), v = trim(int(4, 14) / 2, 1);
+      const nm = pick(NAMES), v = trim(Math.max(1, Math.round(2 + k / 11 + unif(-1, 1))) / 1, 1);
       return {
         story: `${nm} averages ${v} hours of screen time per day. That is at the ${hl(ord(k) + ' percentile')} for students in ${nm}’s grade.`,
         correct: `${k}% of students in the grade have less daily screen time than ${nm}.`,
@@ -743,7 +743,7 @@
       };
     },
     (k) => {
-      const nm = pick(NAMES), v = int(180, 900);
+      const nm = pick(NAMES), v = Math.round(200 + 7 * k + unif(-40, 40));
       return {
         story: `${nm}’s giant pumpkin weighed ${v} pounds, which is at the ${hl(ord(k) + ' percentile')} for pumpkins entered at the county fair.`,
         correct: `${k}% of the pumpkins at the fair weighed less than ${nm}’s.`,
@@ -1147,53 +1147,63 @@
   const CMP_CTX = [
     { key: 'fish', unit: 'cm', muDec: 2, sdDec: 2, xDec: 2, mu: [72, 95], sd: [2, 5], lower: false,
       groups: ['Lake Shata', 'Lake Capra', 'Mirror Lake', 'Lake Tahoma', 'Pine Lake', 'Silver Lake'],
-      pair: (A, B) => `The average length of a fish in ${A.g} is ${A.m} cm with a standard deviation of ${A.s} cm. At ${B.g}, the average is ${B.m} cm with a standard deviation of ${B.s} cm. ${A.n} catches a fish at ${A.g} that measures ${A.x} cm, and ${B.n} catches one at ${B.g} that measures ${B.x} cm.`,
+      intro: (A, B) => `${A.n} and ${B.n} each caught a fish at a different lake. Fish lengths at each lake:`,
+      row: (P) => `<b>${P.G}</b>: mean ${P.m} cm, SD ${P.s} cm. ${P.n}’s fish: <b>${P.x} cm</b>`,
       solo: (A) => `The average length of a fish in ${A.g} is ${A.m} cm with a standard deviation of ${A.s} cm. ${A.n} catches a fish there that measures ${A.x} cm.`,
       ask: 'Who had the better catch relative to their lake?' },
     { key: 'milk', unit: 'kg', muDec: 2, sdDec: 2, xDec: 2, mu: [8, 12], sd: [1.5, 3.8], lower: false,
       groups: ['Big Ranch', 'Chico Ranch', 'Sunny Acres', 'Red Barn Farm', 'Hilltop Dairy'],
       names: ['Daisy', 'Bessie', 'Clover', 'Buttercup', 'Rosie', 'Maple', 'Hazel', 'Penny'],
-      pair: (A, B) => `On average, a cow at ${A.g} makes ${A.m} kg of milk a day with a standard deviation of ${A.s} kg. A cow at ${B.g} makes ${B.m} kg a day on average with a standard deviation of ${B.s} kg. Last week ${A.n} (from ${A.g}) made ${A.x} kg in one day, and ${B.n} (from ${B.g}) made ${B.x} kg.`,
+      intro: () => 'Two cows from different ranches were milked on the same day. Daily milk per cow at each ranch:',
+      row: (P) => `<b>${P.G}</b>: mean ${P.m} kg, SD ${P.s} kg. ${P.n} the cow: <b>${P.x} kg</b>`,
       solo: (A) => `On average, a cow at ${A.g} makes ${A.m} kg of milk a day with a standard deviation of ${A.s} kg. Last week ${A.n} the cow made ${A.x} kg in one day.`,
       ask: 'Which cow produced more milk relative to her ranch?' },
     { key: 'bus', unit: 'minutes', muDec: 2, sdDec: 2, xDec: 2, mu: [8, 14], sd: [2, 5], lower: true,
       groups: ['the stop near the high school', 'the stop near the library', 'the stop by the mall', 'the stop near the church', 'the stop by the park'],
-      pair: (A, B) => `The average wait at ${A.g} is ${A.m} minutes with a standard deviation of ${A.s} minutes. At ${B.g}, the average wait is ${B.m} minutes with a standard deviation of ${B.s} minutes. On Monday, ${A.n} waited ${A.x} minutes at ${A.g}, and ${B.n} waited ${B.x} minutes at ${B.g}.`,
+      intro: (A, B) => `${A.n} and ${B.n} waited for buses at two different stops. Wait times at each stop:`,
+      row: (P) => `<b>${P.G}</b>: mean ${P.m} min, SD ${P.s} min. ${P.n} waited <b>${P.x} min</b>`,
       solo: (A) => `The average wait for the bus at ${A.g} is ${A.m} minutes with a standard deviation of ${A.s} minutes. On Monday, ${A.n} waited ${A.x} minutes there.`,
       note: 'A <b>shorter</b> wait is better.', ask: 'Whose wait was better relative to their bus stop?' },
     { key: 'sales', unit: 'minutes', muDec: 2, sdDec: 2, xDec: 2, mu: [11, 15], sd: [2, 3.5], lower: true,
       groups: ['Company A', 'Company B', 'Company C', 'Company D'],
-      pair: (A, B) => `Salespeople at ${A.g} close a sale in ${A.m} minutes on average, with a standard deviation of ${A.s} minutes. At ${B.g}, the average is ${B.m} minutes with a standard deviation of ${B.s} minutes. ${A.n} (${A.g}) took ${A.x} minutes to close a sale, and ${B.n} (${B.g}) took ${B.x} minutes.`,
+      intro: (A, B) => `${A.n} and ${B.n} work for different companies. Minutes to close a sale:`,
+      row: (P) => `<b>${P.G}</b>: mean ${P.m} min, SD ${P.s} min. ${P.n} took <b>${P.x} min</b>`,
       solo: (A) => `Salespeople at ${A.g} close a sale in ${A.m} minutes on average, with a standard deviation of ${A.s} minutes. ${A.n} took ${A.x} minutes to close a sale.`,
       note: 'Closing a sale <b>faster</b> is better.', ask: 'Whose sales call was better relative to their company?' },
     { key: 'tests', unit: 'points', muDec: 1, sdDec: 1, xDec: 0, mu: [66, 82], sd: [4, 10], lower: false,
       groups: ['Ms. Ortiz’s class', 'Mr. Chen’s class', 'Mrs. Patel’s class', 'Mr. Brooks’s class'],
-      pair: (A, B) => `On a unit test, ${A.g} averaged ${A.m} points with a standard deviation of ${A.s} points, and ${B.g} averaged ${B.m} points with a standard deviation of ${B.s} points. ${A.n} (in ${A.g}) scored ${A.x}, and ${B.n} (in ${B.g}) scored ${B.x}.`,
+      intro: (A, B) => `${A.n} and ${B.n} took unit tests in different classes. Test scores in each class:`,
+      row: (P) => `<b>${P.G}</b>: mean ${P.m}, SD ${P.s}. ${P.n} scored <b>${P.x}</b>`,
       solo: (A) => `On a unit test, ${A.g} averaged ${A.m} points with a standard deviation of ${A.s} points. ${A.n} scored ${A.x}.`,
       ask: 'Who did better relative to their class?' },
     { key: 'dash', unit: 'seconds', muDec: 2, sdDec: 2, xDec: 2, mu: [12.5, 14.5], sd: [0.4, 0.9], lower: true,
       groups: ['the Valley League', 'the Coastal League', 'the Metro League', 'the Summit League'],
-      pair: (A, B) => `In ${A.g}, 100-meter dash times average ${A.m} seconds with a standard deviation of ${A.s} seconds. In ${B.g}, the average is ${B.m} seconds with a standard deviation of ${B.s} seconds. ${A.n} runs ${A.x} seconds in ${A.g}, and ${B.n} runs ${B.x} seconds in ${B.g}.`,
+      intro: (A, B) => `${A.n} and ${B.n} run the 100-meter dash in different leagues. Times in each league:`,
+      row: (P) => `<b>${P.G}</b>: mean ${P.m} s, SD ${P.s} s. ${P.n} ran <b>${P.x} s</b>`,
       solo: (A) => `In ${A.g}, 100-meter dash times average ${A.m} seconds with a standard deviation of ${A.s} seconds. ${A.n} runs the dash in ${A.x} seconds.`,
       note: 'A <b>lower</b> time is better.', ask: 'Who ran better relative to their league?' },
     { key: 'golf', unit: 'strokes', muDec: 1, sdDec: 1, xDec: 0, mu: [72, 88], sd: [3, 6], lower: true,
       groups: ['Oak Hills Golf Course', 'Seaside Links', 'Eagle Ridge Course', 'Pine Valley Course'],
-      pair: (A, B) => `At ${A.g}, the average score is ${A.m} strokes with a standard deviation of ${A.s} strokes. At ${B.g}, the average is ${B.m} strokes with a standard deviation of ${B.s} strokes. ${A.n} shot ${A.x} at ${A.g}, and ${B.n} shot ${B.x} at ${B.g}.`,
+      intro: (A, B) => `${A.n} and ${B.n} played golf on different courses. Scores on each course:`,
+      row: (P) => `<b>${P.G}</b>: mean ${P.m} strokes, SD ${P.s}. ${P.n} shot <b>${P.x}</b>`,
       solo: (A) => `At ${A.g}, the average score is ${A.m} strokes with a standard deviation of ${A.s} strokes. ${A.n} shot ${A.x} there.`,
       note: 'In golf, a <b>lower</b> score is better.', ask: 'Who played better relative to their course?' },
     { key: 'pumpkin', unit: 'pounds', muDec: 1, sdDec: 1, xDec: 1, mu: [420, 650], sd: [50, 110], lower: false,
       groups: ['the Green Valley Fair', 'the Riverside County Fair', 'the Harvest Moon Festival', 'the Hillcrest Fair'],
-      pair: (A, B) => `At ${A.g}, giant pumpkins average ${A.m} pounds with a standard deviation of ${A.s} pounds. At ${B.g}, they average ${B.m} pounds with a standard deviation of ${B.s} pounds. ${A.n} entered a ${A.x}-pound pumpkin at ${A.g}, and ${B.n} entered a ${B.x}-pound pumpkin at ${B.g}.`,
+      intro: (A, B) => `${A.n} and ${B.n} entered giant pumpkins at different fairs. Pumpkin weights at each fair:`,
+      row: (P) => `<b>${P.G}</b>: mean ${P.m} lb, SD ${P.s} lb. ${P.n}’s pumpkin: <b>${P.x} lb</b>`,
       solo: (A) => `At ${A.g}, giant pumpkins average ${A.m} pounds with a standard deviation of ${A.s} pounds. ${A.n} entered a ${A.x}-pound pumpkin.`,
       ask: 'Whose pumpkin was more impressive relative to their fair?' },
     { key: 'gold', unit: 'coins', muDec: 1, sdDec: 1, xDec: 0, mu: [150, 300], sd: [20, 50], lower: false,
       groups: ['the Iron Guild', 'the Moonlight Guild', 'the Ember Guild', 'the Frost Guild'],
-      pair: (A, B) => `Adventurers in ${A.g} bring back an average of ${A.m} gold coins per raid, with a standard deviation of ${A.s} coins. In ${B.g}, the average is ${B.m} coins with a standard deviation of ${B.s} coins. On their last raids, ${A.n} (${A.gp}) brought back ${A.x} coins and ${B.n} (${B.gp}) brought back ${B.x} coins.`,
+      intro: (A, B) => `${A.n} and ${B.n} raid dungeons for different guilds. Gold coins per raid in each guild:`,
+      row: (P) => `<b>${P.G}</b>: mean ${P.m}, SD ${P.s}. ${P.n} brought back <b>${P.x} coins</b>`,
       solo: (A) => `Adventurers in ${A.g} bring back an average of ${A.m} gold coins per raid, with a standard deviation of ${A.s} coins. On the last raid, ${A.n} brought back ${A.x} coins.`,
       ask: 'Who had the better raid relative to their guild?' },
     { key: 'escape', unit: 'minutes', muDec: 1, sdDec: 1, xDec: 1, mu: [30, 60], sd: [5, 10], lower: true,
       groups: ['the Crystal Caverns', 'the Shadow Crypt', 'the Goblin Warrens', 'the Sunken Temple'],
-      pair: (A, B) => `Parties take an average of ${A.m} minutes to escape ${A.g}, with a standard deviation of ${A.s} minutes. Escaping ${B.g} takes ${B.m} minutes on average, with a standard deviation of ${B.s} minutes. ${A.n}’s party escaped ${A.g} in ${A.x} minutes, and ${B.n}’s party escaped ${B.g} in ${B.x} minutes.`,
+      intro: (A, B) => `${A.n}’s party and ${B.n}’s party escaped from different dungeons. Escape times for each dungeon:`,
+      row: (P) => `<b>${P.G}</b>: mean ${P.m} min, SD ${P.s} min. ${P.n}’s party: <b>${P.x} min</b>`,
       solo: (A) => `Parties take an average of ${A.m} minutes to escape ${A.g}, with a standard deviation of ${A.s} minutes. ${A.n}’s party escaped in ${A.x} minutes.`,
       note: 'A <b>faster</b> escape is better.', ask: 'Whose party did better relative to their dungeon?' },
   ];
@@ -1234,7 +1244,7 @@
       const betterIdx = ctx.lower ? (zA < zB ? 0 : 1) : (zA > zB ? 0 : 1);
       const rawBetter = ctx.lower ? (A.x < B.x ? 0 : 1) : (A.x > B.x ? 0 : 1);
       if (tries < 60 && rawBetter === betterIdx && chance(0.7)) continue; // usually make raw values misleading
-      const F = (P, g, n) => ({ g, gp: g.replace(/^the /, ''), n, m: trim(P.m, ctx.muDec), s: trim(P.s, ctx.sdDec), x: fmt(P.x, ctx.xDec) });
+      const F = (P, g, n) => ({ g, G: cap(g), n, m: trim(P.m, ctx.muDec), s: trim(P.s, ctx.sdDec), x: fmt(P.x, ctx.xDec) });
       const FA = F(A, gs[0], nm[0]), FB = F(B, gs[1], nm[1]);
       const sa = zSub({ label: `${nm[0]}’s z =`, x: A.x, m: A.m, s: A.s, xs: FA.x, ms: FA.m, ss: FA.s, who: nm[0] });
       const sb = zSub({ label: `${nm[1]}’s z =`, x: B.x, m: B.m, s: B.s, xs: FB.x, ms: FB.m, ss: FB.s, who: nm[1] });
@@ -1244,10 +1254,11 @@
         : 'Here higher is better, so the <b>larger</b> z-score wins.';
       return compose({
         section: '3.3', type: 'compare', title: 'Who did better?',
-        top: `<p class="story">${ctx.pair(FA, FB)}${ctx.note ? ' ' + ctx.note : ''}</p>`,
+        top: `<p class="story">${ctx.intro(FA, FB)}</p><div class="data">${ctx.row(FA)}<br>${ctx.row(FB)}</div>` +
+          (ctx.note ? `<p class="small">${ctx.note}</p>` : ''),
         subs: [{
           q: `${ctx.ask} Compare their z-scores (round to 2 decimals).`,
-          parts: [sa.part, sb.part, { kind: 'choice', label: ctx.ask, options: [nm[0], nm[1]], correct: betterIdx }],
+          parts: [sa.part, sb.part, { kind: 'choice', label: 'Better relative to their group:', options: [nm[0], nm[1]], correct: betterIdx }],
           hints: [
             `${FORMULA} Each person uses <b>their own</b> group’s mean and SD.`,
             `${nm[0]}: ${sa.setup}<br>${nm[1]}: ${sb.setup}`,
@@ -1420,7 +1431,7 @@
           const zs = zSub({ label: 'Its z-score =', x: u, m: mu, s: sd, xs: trim(u), ms: trim(mu), ss: trim(sd) });
           if (zAmbiguous(zs.z)) continue;
           subs[0].parts.push(zs.part);
-          subs[0].q += ' Then find its z-score.';
+          subs[0].q += ' Then find the z-score of that value.';
           metaParts.push(zs.meta);
         }
         return compose({
@@ -1464,7 +1475,7 @@
         : `${ctx.whose || `A ${ctx.sing}’s ${ctx.measure}`} is <b>${trim(Math.abs(z), 2)} standard deviations ${z < 0 ? 'below' : 'above'}</b> the mean.`;
       const prod = z * sd;
       const unit = ctx.money ? 'dollars' : ctx.short;
-      const parts = [{ kind: 'num', label: `${cap(ctx.measure)} =`, unit, answer: x, tol: Math.max(0.011, 0.02 * sd) }];
+      const parts = [{ kind: 'num', label: `${cap(ctx.measure)} =`, unit, answer: x, tol: roundTo(Math.max(0.011, 0.02 * sd), 6) }];
       const pd = Math.max(decOf(prod), 0);
       return compose({
         section: '3.3', type: 'findX', title: 'Work backward from z',
@@ -1502,7 +1513,7 @@
   const PCTILE_KS = [5, 10, 15, 20, 25, 30, 35, 40, 45, 55, 60, 65, 70, 75, 80, 85, 90, 95];
   const CUT_PS = [1, 2, 3, 5, 10, 15, 20, 25];
   // accepts 2-decimal rounding and small z-rounding differences; rejects wrong tails / wrong methods
-  const xTol = (sd) => Math.max(0.0025 * sd, Math.min(0.05, 0.04 * sd), 0.006);
+  const xTol = (sd) => roundTo(Math.max(0.0025 * sd, Math.min(0.05, 0.04 * sd), 0.006), 6);
   const ND = (mu, sd) => `normaldist(${raw(mu)}, ${raw(sd)})`;
 
   function norm34Sub(kind, ctx, mu, sd) {
@@ -1722,7 +1733,7 @@
       const pct = CUM[k];
       return {
         q: `Estimate the ${ctx.measure} at the <b>${ord(pct)} percentile</b> of the distribution.`,
-        parts: [{ kind: 'num', label: `${cap(ctx.measure)} =`, unit, answer: V(k), tol: Math.max(1e-6, 0.01 * sd) }],
+        parts: [{ kind: 'num', label: `${cap(ctx.measure)} =`, unit, answer: V(k), tol: roundTo(Math.max(1e-6, 0.01 * sd), 6) }],
         locate: `The ${ord(pct)} percentile has <b>${trim(pct, 2)}%</b> of the data below it. Which tick mark has exactly that much area to its left?`,
         add: `Area to the left of each tick, from μ − 3σ up to μ + 3σ: 0.15%, 2.5%, 16%, 50%, 84%, 97.5%, 99.85%.`,
         sol: [
@@ -1744,7 +1755,7 @@
     return {
       q: `What ${ctx.measure} is <b>${Math.abs(k)} standard deviation${Math.abs(k) > 1 ? 's' : ''} ${k > 0 ? 'above' : 'below'}</b> the mean? Then: ${what.toLowerCase()} of ${ctx.pl} ${isBelow ? ctx.lt(that) : ctx.gt(that)}?`,
       parts: [
-        { kind: 'num', label: `${cap(ctx.measure)} =`, unit, answer: V(k), tol: Math.max(1e-6, 0.01 * sd) },
+        { kind: 'num', label: `${cap(ctx.measure)} =`, unit, answer: V(k), tol: roundTo(Math.max(1e-6, 0.01 * sd), 6) },
         pctPart(P),
       ],
       locate: `${k > 0 ? 'Add' : 'Subtract'} ${Math.abs(k)} SD${Math.abs(k) > 1 ? 's' : ''}: ${eq(`${nf(ctx, mu)} ${k < 0 ? '−' : '+'} ${Math.abs(k)} × ${nf(ctx, sd)}`)}.`,
