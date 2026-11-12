@@ -3465,6 +3465,7 @@
       ctx.fillStyle = col; ctx.textAlign = 'left'; ctx.fillText(text, x + 9, HUD + 25);
       x += w + 8;
     };
+    if (run.hardcore) badge('💀 HARDCORE', '#ff5f6d');
     if (settings.teacherSkip) badge('TEACHER MODE: answers filled in', '#ff6b6b');
     else if (run.fun) badge('JUST FOR FUN: answers filled in', '#ffd23f');
     if (run.freeSolves > 0) badge(`🎟 Free solves: ${run.freeSolves}`, '#7fe0d0');
@@ -3621,21 +3622,24 @@
   function resumeGame() { showScreen(null); G.mode = 'play'; clearInput(); }
   function reportCode(run) {
     const ini = (run.name || '').split(/\s+/).filter(Boolean).map((w) => w[0].toUpperCase()).join('').slice(0, 3) || 'XX';
-    return `F${run.won ? 6 : run.floor}-S${run.stats.solved}-A${run.stats.attempted}-P${run.stats.perfect}-${run.won ? 'W' : 'L'}${ini}`;
+    return `F${run.won ? 6 : run.floor}-S${run.stats.solved}-A${run.stats.attempted}-P${run.stats.perfect}-${run.won ? 'W' : 'L'}${run.hardcore ? 'H' : ''}${ini}`;
   }
   function fmtTime(s) { const m = Math.floor(s / 60); return `${m}:${String(Math.floor(s % 60)).padStart(2, '0')}`; }
   function showEnd(won) {
     const run = G.run;
     G.mode = 'end';
     clearInput();
+    const hcOver = !won && run.hardcore;
     if (won) { store.del(SAVEKEY); if (!settings.funUnlocked) { settings.funUnlocked = true; saveSettings(); } } else run.deaths++;
+    if (hcOver) { store.del(SAVEKEY); G.floorSave = null; } // hardcore: the run is over
     $('end-fun-row').classList.toggle('hidden', !won);
     $('end-fun').checked = !!settings.funMode;
-    $('end-title').textContent = won ? '🏆 YOU BEAT THE DISTRIBUTION DUNGEON! 🏆' : 'Defeated!';
+    $('end-title').textContent = won ? '🏆 YOU BEAT THE DISTRIBUTION DUNGEON! 🏆' : hcOver ? '💀 Hardcore run over!' : 'Defeated!';
     const fctx = $('end-face').getContext('2d');
     A.drawPortrait(fctx, 0, 0, 32, { expr: won ? 'happy' : 'shocked', hair: won ? 0 : 100, t: 2, bg: 'dungeon' });
     const credit = run.freeSolves + run.floorSolved;
-    $('end-sub').innerHTML = won ? `<b>Mr. Laporte:</b> ${escapeHTML(S.endWin)}` : `<b>Mr. Laporte:</b> ${escapeHTML(defeatLine())} ${escapeHTML(S.endLose(run.floor, credit))}`;
+    $('end-sub').innerHTML = won ? `<b>Mr. Laporte:</b> ${escapeHTML(S.endWin)}`
+      : `<b>Mr. Laporte:</b> ${escapeHTML(defeatLine())} ${escapeHTML(hcOver ? S.endLoseHardcore(run.floor) : S.endLose(run.floor, credit))}`;
     $('end-retry').textContent = `↻ Try Floor ${run.floor} again`;
     const s = run.stats;
     const rows = SECTIONS.filter((k) => s.bySec[k]).map((k) => `<tr><td><b style="color:${secColor(k)}">${k}</b> ${secName(k)}</td><td>${s.bySec[k].solved} / ${s.bySec[k].attempted}${s.bySec[k].perfect ? ` &nbsp;⭐${s.bySec[k].perfect}` : ''}</td></tr>`).join('');
@@ -3644,7 +3648,7 @@
     $('end-stats').innerHTML = `
       <div class="end-name">${escapeHTML(run.name || 'Unnamed Hero')}</div>
       <div class="end-grid">
-        <div><b>${won ? 'ALL' : run.floor}</b><span>${won ? 'floors cleared' : 'floor reached'}</span></div>
+        <div><b>${won ? 'ALL' : run.floor}</b><span>${won ? 'floors cleared' : 'floor reached'}${run.hardcore ? ' (💀 hardcore)' : ''}</span></div>
         <div><b>${s.solved}</b><span>problems solved</span></div>
         <div><b>${s.perfect}</b><span>perfect solves ⭐</span></div>
         <div><b>${fmtTime(run.playTime)}</b><span>play time</span></div>
@@ -3652,14 +3656,18 @@
       ${rows ? `<table class="end-table"><tr><th>Section</th><th>Solved / tried</th></tr>${rows}</table>` : '<p class="note" style="text-align:center">No problems tried yet.</p>'}
       <div class="end-extras">${hats ? 'Hats: ' + hats : ''}${pets ? ` &nbsp;·&nbsp; Friends: ${escapeHTML(pets)}` : ''}${run.edamame ? ` &nbsp;·&nbsp; Edamame eaten: ${run.edamame}` : ''}</div>
       <div class="end-code">Report code (screenshot this or copy it into your class form): <b>${reportCode(run)}</b></div>`;
-    $('end-retry').classList.toggle('hidden', won || !G.floorSave);
+    $('end-retry').classList.toggle('hidden', won || hcOver || !G.floorSave);
     $('end-again').classList.toggle('hidden', !won);
+    $('end-restart').classList.toggle('hidden', !hcOver);
     showScreen('end');
   }
   function defeatLine() {
     const src = (G.lastHit || '').split(':').pop();
-    const pool = S.defeatLines[src] || S.defeatLines.generic;
-    return pick(pool).replace('{n}', String(Math.max(1, G.enemies.length)));
+    const n = G.enemies.filter((e) => !e.dead).length;
+    let pool = S.defeatLines[src] || S.defeatLines.generic;
+    if (n < 2) pool = pool.filter((l) => !l.includes('{n}'));
+    if (!pool.length) pool = S.defeatLines.generic.filter((l) => !l.includes('{n}'));
+    return pick(pool).replace('{n}', String(n));
   }
 
   // ---- settings page ----
@@ -3700,13 +3708,17 @@
   function refreshTitle() {
     const sv = store.get(SAVEKEY);
     $('btn-continue').classList.toggle('hidden', !sv);
-    $('save-note').textContent = sv ? `Saved game found: Floor ${sv.run.floor}${sv.run.name ? ' · ' + sv.run.name : ''} (${new Date(sv.when).toLocaleDateString()})` : '';
+    $('save-note').textContent = sv ? `Saved game found: Floor ${sv.run.floor}${sv.run.hardcore ? ' · 💀 Hardcore' : ''}${sv.run.name ? ' · ' + sv.run.name : ''} (${new Date(sv.when).toLocaleDateString()})` : '';
+    $('hc').checked = !!settings.hardcore;
+    $('hc-row').classList.toggle('on', !!settings.hardcore);
   }
+  $('hc').onchange = (e) => { settings.hardcore = e.target.checked; saveSettings(); refreshTitle(); };
   function startRun() {
     audio();
     G.run = newRunState();
     G.run.name = settings.name || '';
     G.run.fun = !!(settings.funUnlocked && settings.funMode);
+    G.run.hardcore = !!settings.hardcore;
     G.actors = []; G.texts = []; G.particles = []; G.deathT = 0; G.shake = 0; G.psy = 0; G.talk = null; G.bark = null; G.cut = null;
     if (G.startWithEdamame) { const it = itemById('edamame'); G.run.items.push('edamame'); it.apply(G.run.player); }
     const sf = clamp(Number(settings.startFloor) || 1, 1, 5);
@@ -3793,6 +3805,7 @@
   }
   $('end-retry').onclick = () => { if (G.floorSave) retryFloor(); };
   $('end-again').onclick = () => startRun();
+  $('end-restart').onclick = () => startRun();
   $('end-fun').onchange = (e) => { settings.funMode = e.target.checked; saveSettings(); };
   $('set-fun').onchange = (e) => { settings.funMode = e.target.checked; saveSettings(); };
   $('end-title-btn').onclick = () => { G.mode = 'title'; G.run = null; G.room = null; refreshTitle(); showScreen('title'); };

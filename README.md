@@ -61,6 +61,15 @@ on that floor (but keep everything from earlier floors), and **every problem the
 that floor becomes a free solve** so they don't have to redo work. Dying in the final fight puts them
 right back into the final fight.
 
+## Hardcore mode
+
+On the title screen students can tick **💀 Hardcore mode** (it's explained right there). In Hardcore,
+being defeated ends the run: the save is erased, and they start over from Floor 1 with no power-ups.
+(A Hall Pass still revives them, since that's a power-up.) The game still saves at the start of each floor,
+so a hardcore run can be continued next class. Turning the checkbox on or off only affects new games.
+Hardcore runs show a 💀 HARDCORE badge in-game, and their report code includes an **H** (for example
+`F3-S12-A14-P9-LHJS`).
+
 ## Teacher options (PIN 9631)
 
 In **Settings → 🔐 Teacher options**, enter the PIN to:

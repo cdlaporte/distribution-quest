@@ -20,8 +20,8 @@
   .overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 12px; background: rgba(4,3,10,0.62); z-index: 10; }
   .screen { background: transparent; }
   .panel { background: linear-gradient(180deg, #1d1833 0%, #15112a 100%); border: 3px solid var(--line); border-radius: 16px; padding: 20px 26px; width: min(760px, 100%); box-shadow: 0 0 0 3px #0b0916, 0 24px 70px rgba(0,0,0,0.7); max-height: calc(100vh - 24px); overflow-y: auto; }
-  h1.logo { font-family: var(--pixel); font-size: clamp(26px, 3.6vw, 44px); margin: 4px 0 0; line-height: 1.25; text-align: center; color: var(--gold); text-shadow: 0 4px 0 #9a5a00, 0 8px 0 #3a1d00, 0 0 30px rgba(255,210,63,0.45); letter-spacing: 2px; }
-  .tag { text-align: center; color: var(--muted); margin: 14px 0 18px; font-size: 20px; }
+  h1.logo { font-family: var(--pixel); font-size: clamp(24px, min(3.6vw, 6vh), 44px); margin: 4px 0 0; line-height: 1.25; text-align: center; color: var(--gold); text-shadow: 0 4px 0 #9a5a00, 0 8px 0 #3a1d00, 0 0 30px rgba(255,210,63,0.45); letter-spacing: 2px; }
+  .tag { text-align: center; color: var(--muted); margin: 10px 0 12px; font-size: 19px; }
   h2 { margin: 0 0 12px; font-size: 28px; font-weight: 900; }
   h2.pix { font-family: var(--pixel); font-size: 20px; color: var(--gold); line-height: 1.4; }
   .btn { font: inherit; font-weight: 800; font-size: 20px; padding: 12px 20px; border-radius: 12px; border: 3px solid var(--line); background: var(--panel2); color: var(--text); cursor: pointer; box-shadow: 0 4px 0 #0b0916; transition: transform 0.06s; }
@@ -38,6 +38,10 @@
   .namebox input { font: inherit; font-size: 20px; padding: 10px 12px; border-radius: 10px; border: 3px solid var(--line); background: #0d0b18; color: var(--text); }
   .namebox input:focus { border-color: var(--teal); outline: none; }
   .note { color: var(--muted); font-size: 16px; }
+  .hardcore { display: flex; gap: 10px; align-items: flex-start; text-align: left; font-size: 16px; line-height: 1.35; padding: 9px 12px; border: 3px solid var(--line); border-radius: 12px; background: var(--panel2); cursor: pointer; color: var(--muted); }
+  .hardcore input { width: 22px; height: 22px; margin-top: 1px; flex: none; accent-color: #ff5f6d; }
+  .hardcore b { color: var(--text); }
+  .hardcore.on { border-color: #ff5f6d; background: #2c1018; color: #ffd6da; }
   .save-note { color: var(--green); font-size: 16px; text-align: center; min-height: 20px; }
   kbd { background: #2a2445; border: 2px solid #4d4380; border-bottom-width: 4px; border-radius: 6px; padding: 1px 8px; font-family: inherit; font-weight: 800; }
   .keys { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; font-size: 19px; margin: 8px 0 12px; align-items: center; }
@@ -173,15 +177,18 @@
 
 <!-- Title -->
 <div id="title" class="overlay screen">
-  <div class="panel" style="text-align:center;width:min(660px,100%);background:rgba(21,17,42,0.88)">
+  <div class="panel" style="text-align:center;width:min(660px,100%);background:rgba(21,17,42,0.88);padding:14px 22px">
     <h1 class="logo">DISTRIBUTION<br>QUEST</h1>
     <div class="tag">A dungeon crawler for Stats Unit 3: percentiles, uniform &amp; normal distributions, z-scores</div>
-    <div class="stack">
+    <div class="stack" style="max-width:500px;gap:8px">
       <label class="namebox">Your name (it goes on your end-of-run report)
         <input id="name" maxlength="40" autocomplete="off" placeholder="First and last name">
       </label>
-      <button class="btn gold hidden" id="btn-continue">▶ Continue</button>
-      <button class="btn primary" id="btn-play">▶ New Game</button>
+      <div class="row" style="margin-top:0;flex-wrap:nowrap">
+        <button class="btn gold hidden" id="btn-continue" style="flex:1">▶ Continue</button>
+        <button class="btn primary" id="btn-play" style="flex:1">▶ New Game</button>
+      </div>
+      <label class="hardcore" id="hc-row"><input type="checkbox" id="hc"><span><b>💀 Hardcore mode</b> (a real challenge): if you're defeated, you start over from <b>Floor 1</b> with no power-ups. (Normal mode just sends you back to the start of the floor you're on.)</span></label>
       <div class="row" style="margin-top:4px">
         <button class="btn" id="btn-settings">⚙ Settings</button>
         <button class="btn" id="btn-howto">How to Play</button>
@@ -210,6 +217,7 @@
       <li>⭐ <b>Perfect solve</b> = first try, no hints, for a better reward. Wrong answers never hurt you. After 2 misses you can see the full solution.</li>
       <li>Keep scratch paper and a calculator handy. For <b>3.4</b>, keep <b>Desmos</b> open in another tab.</li>
       <li>The game saves at the start of every floor. Press <b>Continue</b> next class to pick up where you left off.</li>
+      <li>If you're defeated, you go back to the start of that floor, and problems you already solved there are free. In <b>💀 Hardcore mode</b> (a checkbox on the title screen), being defeated sends you all the way back to Floor 1.</li>
     </ul>
     <div class="row"><button class="btn" data-back>Back</button></div>
   </div>
@@ -294,6 +302,7 @@
     <div class="row">
       <button class="btn gold hidden" id="end-retry">↻ Try this floor again</button>
       <button class="btn primary hidden" id="end-again">Play again</button>
+      <button class="btn gold hidden" id="end-restart">💀 Start over from Floor 1</button>
       <button class="btn ghost" id="end-title-btn">Title screen</button>
     </div>
   </div>

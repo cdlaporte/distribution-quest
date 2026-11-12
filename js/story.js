@@ -176,6 +176,7 @@
       { e: 'smug', hair: 0, t: "...We're still having a quiz on Friday, though." },
     ],
     endWin: "You beat the dungeon AND me. Your stats skills are in the 100th percentile... wait, that's impossible. Let's call it the 99th.",
+    endLoseHardcore: (f) => `Hardcore means hardcore! Back to Floor 1 with nothing. ${f > 1 ? `You made it to Floor ${f}, though. That's impressive.` : 'Shake it off and try again!'}`,
     endLose: (f, n) => `Don't worry, I'll drag you back to the start of Floor ${f}. You'll lose the power-ups you found on this floor, but you keep everything from earlier floors${n ? `, and the ${n} problem${n === 1 ? '' : 's'} you already solved here will be free` : ''}.`,
     retry: (f, n) => [
       { e: 'calm', t: `Back to the start of Floor ${f}. Deep breath. The dungeon has been rearranged, so keep your eyes open.` },
