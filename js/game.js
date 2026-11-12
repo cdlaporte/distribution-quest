@@ -629,7 +629,7 @@
 
   // ================= enemies =================
   function makeEnemy(kind, x, y) {
-    const f = G.run.floor, hm = [1, 2.5, 4.2, 6.5, 9.0][Math.min(f, 5) - 1], sm = 1 + 0.08 * (Math.min(f, 5) - 1);
+    const f = G.run.floor, hm = [1, 2.2, 3.7, 5.6, 7.7][Math.min(f, 5) - 1], sm = 1 + 0.08 * (Math.min(f, 5) - 1);
     const base = { kind, x, y, t: Math.random() * 3, flash: 0, slow: 0, spawn: 0.7, kx: 0, ky: 0, tint: ENEMY_TINTS[Math.min(f, 5) - 1] };
     const defs = {
       slime: { r: 15, hp: 3, speed: 78 },
@@ -816,11 +816,11 @@
   // ================= bosses =================
   const BOSSES = [
     { name: 'Rankenstein', title: 'Built from every dot of every dotplot', color: '#86b273', r: 44, hp: 270 },
-    { name: 'The Uniform Monolith', title: 'Perfectly flat. Perfectly fair. Perfectly rectangular.', color: '#d9b06a', r: 42, hp: 650 },
-    { name: 'Zed, the Standardizer', title: 'Measures everything in standard deviations', color: '#4fc27a', r: 40, hp: 1050 },
-    { name: 'The Great Bellringer', title: 'Its toll is shaped like a bell curve', color: '#d99a3a', r: 48, hp: 1500 },
-    { name: 'The Empirical Emperor', title: 'Ruler of 68, 95 and 99.7', color: '#c66bd1', r: 44, hp: 2100 },
-    { name: 'SUPER MANE LAPORTE', title: 'Powered by Secret Hair Tonic', color: '#ffd23f', r: 34, hp: 3000 },
+    { name: 'The Uniform Monolith', title: 'Perfectly flat. Perfectly fair. Perfectly rectangular.', color: '#d9b06a', r: 42, hp: 580 },
+    { name: 'Zed, the Standardizer', title: 'Measures everything in standard deviations', color: '#4fc27a', r: 40, hp: 920 },
+    { name: 'The Great Bellringer', title: 'Its toll is shaped like a bell curve', color: '#d99a3a', r: 48, hp: 1300 },
+    { name: 'The Empirical Emperor', title: 'Ruler of 68, 95 and 99.7', color: '#c66bd1', r: 44, hp: 1800 },
+    { name: 'SUPER MANE LAPORTE', title: 'Powered by Secret Hair Tonic', color: '#ffd23f', r: 34, hp: 2600 },
   ];
   function makeBoss(floor) {
     const v = Math.min(floor, 6) - 1;
