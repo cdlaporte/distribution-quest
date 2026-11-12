@@ -22,13 +22,13 @@ const P = require(path.join(__dirname, '..', 'js', 'problems.js'));
 const I = P._internal;
 const OUT = __dirname;
 
-// ---- which problems: 4 per section, all different types (calc first, then interpretation) ----
+// ---- which problems: 5 per section, all different types (calc first, then interpretation) ----
 const PLAN = {
-  '3.1': ['pctOfValue', 'dotplotValue', 'interpret', 'whatIf'],
-  '3.2': ['greater', 'between', 'percentile', 'validDensity'],
-  '3.3': ['single', 'compare', 'findX', 'zWords'],
-  '3.4': ['between', 'cutoff', 'shadeArea', 'normInterp'],
-  '3.5': ['below', 'valueAtPct', 'sdPct', 'shade35'],
+  '3.1': ['pctOfValue', 'valueAtPct', 'dotplotValue', 'interpret', 'whatIf'],
+  '3.2': ['greater', 'between', 'percentile', 'validDensity', 'uniInterp'],
+  '3.3': ['single', 'compare', 'findX', 'zWords', 'unusual'],
+  '3.4': ['less', 'between', 'cutoff', 'shadeArea', 'normInterp'],
+  '3.5': ['below', 'between', 'valueAtPct', 'sdPct', 'shade35'],
 };
 const strip = (h) => h.replace(/<svg[\s\S]*?<\/svg>/g, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 const contextKey = (p) => {
@@ -69,8 +69,17 @@ function printSvg(html) {
     return s;
   });
 }
+// Spell out shorthand distribution notation in words, e.g. "X ~ N(5, 2)" also says
+// "meaning X is distributed normally with a mean of 5 and a standard deviation of 2".
+function spellOut(h) {
+  return h
+    .replace(/([A-Za-z])\s*[~∼]\s*U\(\s*([^,()]+?)\s*,\s*([^()]+?)\s*\)/g,
+      (m, v, a, b) => `${m}, meaning ${v} is uniformly distributed between ${a} and ${b}`)
+    .replace(/([A-Za-z])\s*[~∼]\s*N\(\s*([^,()]+?)\s*,\s*([^()]+?)\s*\)/g,
+      (m, v, a, b) => `${m}, meaning ${v} is distributed normally with a mean of ${a} and a standard deviation of ${b}`);
+}
 // game-only phrases
-const forPaper = (h) => printSvg(h).replace('Use Desmos in your other tab.', 'You may use Desmos.');
+const forPaper = (h) => spellOut(printSvg(h).replace('Use Desmos in your other tab.', 'You may use Desmos.'));
 
 // ---- rendering ----
 const LETTERS = 'ABCD';
@@ -78,7 +87,7 @@ const SECTION_NOTE = {
   '3.1': 'A percentile is the percent of values <b>below</b> a value. Rounding up or down is fine.',
   '3.2': 'Sketch the density curve. Area = width × height = probability.',
   '3.3': 'z = (x − μ) ÷ σ. Round z-scores to 2 decimal places.',
-  '3.4': 'You may use Desmos: normaldist(μ, σ) with Find Cumulative Probability, or .inversecdf(area).',
+  '3.4': 'You may use Desmos: normaldist(μ, σ) (the normal distribution with mean μ and standard deviation σ) with Find Cumulative Probability, or .inversecdf(area).',
   '3.5': 'Use the empirical rule (68–95–99.7). No calculator needed.',
 };
 function partHTML(part, calc) {
@@ -87,7 +96,7 @@ function partHTML(part, calc) {
   }
   const pics = part.options.every((o) => /^<svg/.test(o));
   const len = Math.max(...part.options.map((o) => strip(o).length));
-  const opts = part.options.map((o, i) => `<div class="opt"><b>${LETTERS[i]}.</b> ${printSvg(o)}</div>`).join('');
+  const opts = part.options.map((o, i) => `<div class="opt"><b>${LETTERS[i]}.</b> ${spellOut(printSvg(o))}</div>`).join('');
   return `<div class="opts ${pics ? 'pics' : len <= 14 ? 'row' : len <= 36 ? 'grid' : 'col'}">${opts}</div>${calc ? '' : '<div class="work small-work"></div>'}`;
 }
 function fmtAnswer(part) {
@@ -99,7 +108,7 @@ function fmtAnswer(part) {
 function keyAnswer(part) {
   if (part.kind === 'choice') {
     const o = part.options[part.correct];
-    return /^<svg/.test(o) ? `<b>${LETTERS[part.correct]}</b> ${printSvg(o)}` : `<b>${LETTERS[part.correct]}. ${o}</b>`;
+    return /^<svg/.test(o) ? `<b>${LETTERS[part.correct]}</b> ${printSvg(o)}` : `<b>${LETTERS[part.correct]}. ${spellOut(o)}</b>`;
   }
   let extra = ' — answers that round to this are fine';
   if (part.unit === '%' || part.unit === 'th percentile') {
@@ -143,11 +152,8 @@ const CSS = `
   .opts.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 20px; margin-top: 4px; }
   .answer-line { margin-top: 6px; }
   .blank { display: inline-block; width: 1.3in; border-bottom: 1px solid #222; margin: 0 4px; }
-  .twocol { display: grid; grid-template-columns: 1fr 2.35in; gap: 0.15in; }
-  .workbox { border: 1px solid #aaa; border-radius: 6px; min-height: 1.6in; padding: 2px 6px; font-size: 8.5pt; color: #999; margin: 2px 0 4px; }
-  .calc .opts.grid { grid-template-columns: 1fr; }
-  .work { height: 1.45in; }
-  .work.small-work { height: 0.2in; }
+  .work { height: 1.7in; }
+  .work.small-work { height: 0.45in; }
   .key .problem { padding: 5px 0; border-bottom: 1px dotted #bbb; }
   .key .final { margin: 2px 0 3px; }
   .key .final svg { display: inline-block; vertical-align: middle; width: 1.3in; margin: 0 0 0 6px; border: 1px solid #bbb; }
@@ -160,7 +166,7 @@ const CSS = `
 const HEADER = (key) => `
   <h1>${key ? 'Unit 3 Review: Distributions — ANSWER KEY' : 'Intro to Stats B — Unit 3 Review: Distributions'}</h1>
   ${key ? '' : `<div class="namebar">Name: <span></span> Period: <span class="short"></span></div>
-  <div class="instructions"><b>Directions.</b> Show your work in the Work boxes. Rounding up or down is fine on every answer.
+  <div class="instructions"><b>Directions.</b> Show your work in the space under each problem. Rounding up or down is fine on every answer.
     <ul>
       <li><b>3.1 Percentiles:</b> a value’s percentile = the percent of the data values that are <b>below</b> it.</li>
       <li><b>3.2 Uniform:</b> the density curve is a rectangle with area 1; area = probability.</li>
@@ -183,7 +189,7 @@ function sheet(key) {
       } else {
         const calc = P.CATEGORY[sec][p.type] === 'calc';
         body += calc
-          ? `<div class="problem calc"><div class="num">${n}.</div><div class="twocol"><div>${forPaper(p.promptHTML)}${partHTML(part, true)}</div><div class="workbox">Work</div></div></div>`
+          ? `<div class="problem calc"><div class="num">${n}.</div><div>${forPaper(p.promptHTML)}${partHTML(part, true)}<div class="work"></div></div></div>`
           : `<div class="problem"><div class="num">${n}.</div><div>${forPaper(p.promptHTML)}${partHTML(part, false)}</div></div>`;
       }
     });

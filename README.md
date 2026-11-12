@@ -138,7 +138,7 @@ top bar to see what it does. Shop items show their effect when you walk up to th
 
 ## Review sheet (for students who'd rather not play)
 
-`review/Unit3_Review.pdf` is a printable 5-page review sheet with 4 problems from each section
+`review/Unit3_Review.pdf` is a printable review sheet with 5 problems from each section (25 total, with space to show work)
 (calculations plus interpretation and shaded-area multiple choice), and `review/Unit3_Review_Key.pdf`
 is the answer key with short worked solutions. Run `node review/build-review.js` to rebuild them, or
 `SEED=7 node review/build-review.js` for a different set of problems.
