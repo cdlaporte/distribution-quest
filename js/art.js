@@ -1095,9 +1095,38 @@
     });
   }
 
+  // ---- performance helpers: pre-rendered sprites instead of per-frame filters ----
+  const whiteCache = new WeakMap();
+  // a white silhouette of any sprite (used for hit flashes instead of ctx.filter)
+  function whiteOf(img) {
+    let c = whiteCache.get(img);
+    if (!c) {
+      c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+      const g = c.getContext('2d');
+      g.drawImage(img, 0, 0);
+      g.globalCompositeOperation = 'source-atop';
+      g.fillStyle = '#ffffff'; g.fillRect(0, 0, c.width, c.height);
+      whiteCache.set(img, c);
+    }
+    return c;
+  }
+  // Mr. Laporte with his full golden mane, pre-rendered (6 wobble frames), optionally tinted for afterimages
+  const MANE_W = 140, MANE_H = 170, MANE_CX = 70, MANE_CY = 95;
+  function laporteManeSprite(frame, mf, tint) {
+    return cached(`lapM${frame}_${mf}_${tint || ''}`, () => {
+      const spr = laporteSprite(frame);
+      const c = document.createElement('canvas'); c.width = MANE_W; c.height = MANE_H;
+      const g = c.getContext('2d'); g.imageSmoothingEnabled = false;
+      g.drawImage(spr, MANE_CX - spr.width / 2, MANE_CY - spr.height / 2);
+      drawManeSprite(g, MANE_CX, MANE_CY - 27, mf * 0.12, 1);
+      if (tint) { g.globalCompositeOperation = 'source-atop'; g.globalAlpha = 0.7; g.fillStyle = tint; g.fillRect(0, 0, MANE_W, MANE_H); }
+      return c;
+    });
+  }
+
   DQ.Art = {
     OUTLINE, TAU, painter, bake, sprite, fromRows, cached, blit, shadow, glow, shade, tones, rrect,
-    drawPortrait, buildFace, laporteSprite, drawManeSprite, heroSprite, guardSprite, subSprite, knightSprite, spiderSprite, freshmanSprite,
+    drawPortrait, buildFace, laporteSprite, drawManeSprite, heroSprite, guardSprite, subSprite, knightSprite, spiderSprite, freshmanSprite, whiteOf, laporteManeSprite, MANE_CX, MANE_CY,
     slimeSprite, batSprite, ghostSprite, archerSprite, boarSprite, eyeSprite,
     coinSprite, heartSprite, edamameSprite, beanSprite, chestSprite,
     bosses: { rankenstein, monolith, zed, bell, emperor },

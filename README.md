@@ -97,7 +97,7 @@ need the PIN, and those runs don't count problems as solved.
 Some fight rooms are **big rooms** (two screens wide or tall, or both). The camera pans with you, and
 they hold more monsters.
 
-Monsters get much tougher on each floor, and bosses take real effort. New monster types appear as you go
+Floor 1 is gentle, but after that monsters get much tougher on each floor (by Floor 5 they have 9× the health, move faster, and there are more of them), and bosses take real effort. New monster types appear as you go
 deeper, and Mr. Laporte gives a quick tip the first time you meet each one. Besides slimes, bats, skeleton
 archers, boars, eyeballs and ghosts there are **Box Plot Knights** (their box-plot shield blocks shots
 from the front), **Dice Cubes** (fire as many shots as the number they roll), **Sigma Spiders** (their

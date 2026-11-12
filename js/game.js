@@ -475,7 +475,7 @@
     if (!room.cleared && room.type === 'combat') {
       const f = run.floor;
       const area = (COLS * ROWS) / (VCOLS * VROWS);
-      const n = Math.min(18, Math.round((4 + Math.floor((f - 1) * 0.7) + irand(0, 1) + (f >= 3 ? 1 : 0)) * (area > 1 ? 0.75 + area * 0.45 : 1)));
+      const n = Math.min(20, Math.round((4 + Math.floor((f - 1) * 0.7) + irand(0, 1) + (f >= 3 ? 1 : 0) + (f >= 2 ? 1 : 0)) * (area > 1 ? 0.75 + area * 0.45 : 1)));
       // each floor introduces new monsters
       const kinds = [
         ['slime', 'slime', 'slime', 'bat', 'bat', 'archer', 'boar'],
@@ -629,7 +629,7 @@
 
   // ================= enemies =================
   function makeEnemy(kind, x, y) {
-    const f = G.run.floor, hm = [1, 1.9, 3.0, 4.4, 6.0][Math.min(f, 5) - 1], sm = 1 + 0.06 * (Math.min(f, 5) - 1);
+    const f = G.run.floor, hm = [1, 2.5, 4.2, 6.5, 9.0][Math.min(f, 5) - 1], sm = 1 + 0.08 * (Math.min(f, 5) - 1);
     const base = { kind, x, y, t: Math.random() * 3, flash: 0, slow: 0, spawn: 0.7, kx: 0, ky: 0, tint: ENEMY_TINTS[Math.min(f, 5) - 1] };
     const defs = {
       slime: { r: 15, hp: 3, speed: 78 },
@@ -653,7 +653,7 @@
   }
 
   function fireEnemy(x, y, ux, uy, speed, opts) {
-    const sm = 1 + 0.03 * (Math.min(G.run.floor, 6) - 1);
+    const sm = 1 + 0.05 * (Math.min(G.run.floor, 6) - 1);
     G.ebullets.push(Object.assign({ x, y, vx: ux * speed * sm, vy: uy * speed * sm, r: 6, life: 7, color: '#ff6b6b', src: fireEnemy.src }, opts || {}));
   }
   function ring(x, y, n, speed, offset, opts, skip) {
@@ -816,11 +816,11 @@
   // ================= bosses =================
   const BOSSES = [
     { name: 'Rankenstein', title: 'Built from every dot of every dotplot', color: '#86b273', r: 44, hp: 270 },
-    { name: 'The Uniform Monolith', title: 'Perfectly flat. Perfectly fair. Perfectly rectangular.', color: '#d9b06a', r: 42, hp: 470 },
-    { name: 'Zed, the Standardizer', title: 'Measures everything in standard deviations', color: '#4fc27a', r: 40, hp: 720 },
-    { name: 'The Great Bellringer', title: 'Its toll is shaped like a bell curve', color: '#d99a3a', r: 48, hp: 1000 },
-    { name: 'The Empirical Emperor', title: 'Ruler of 68, 95 and 99.7', color: '#c66bd1', r: 44, hp: 1350 },
-    { name: 'SUPER MANE LAPORTE', title: 'Powered by Secret Hair Tonic', color: '#ffd23f', r: 34, hp: 2100 },
+    { name: 'The Uniform Monolith', title: 'Perfectly flat. Perfectly fair. Perfectly rectangular.', color: '#d9b06a', r: 42, hp: 650 },
+    { name: 'Zed, the Standardizer', title: 'Measures everything in standard deviations', color: '#4fc27a', r: 40, hp: 1050 },
+    { name: 'The Great Bellringer', title: 'Its toll is shaped like a bell curve', color: '#d99a3a', r: 48, hp: 1500 },
+    { name: 'The Empirical Emperor', title: 'Ruler of 68, 95 and 99.7', color: '#c66bd1', r: 44, hp: 2100 },
+    { name: 'SUPER MANE LAPORTE', title: 'Powered by Secret Hair Tonic', color: '#ffd23f', r: 34, hp: 3000 },
   ];
   function makeBoss(floor) {
     const v = Math.min(floor, 6) - 1;
@@ -841,7 +841,8 @@
     const minions = G.enemies.filter((e) => e.kind !== 'boss').length;
     if (b.stun > 0) { b.stun -= dt; return; }
     const shieldSlow = b.shielded ? 0.6 : 1;
-    b.cd -= dt * shieldSlow; b.cd2 -= dt * shieldSlow; b.cd3 -= dt * shieldSlow;
+    const pace = shieldSlow * (1 + 0.1 * Math.min(4, b.variant)); // later bosses attack more often (Floor 1 unchanged)
+    b.cd -= dt * pace; b.cd2 -= dt * pace; b.cd3 -= dt * pace;
     switch (b.variant) {
       case 0: { // Rankenstein: lumbers at you, rains columns of dotplot dots
         b.frame = Math.floor(b.t * 3) % 2;
@@ -1030,6 +1031,8 @@
           for (let i = 0; i < 6; i++) G.vfxRings.push({ x: b.x, y: b.y, t: -i * 0.08, max: 0.9 });
         }
         if (Math.random() < dt * (2 + phase)) G.bolts.push({ x: b.x, y: b.y - 40, a: rand(0, TAU), len: rand(120, 260), life: 0.18 });
+        maneSparkles(b.x, b.y, 1.7, dt);
+        if (Math.random() < dt * 30) G.particles.push({ x: rand(T, RW - T), y: T, vx: rand(-30, 30), vy: rand(40, 120), life: 2.5, max: 2.5, color: pick(['#ffd23f', '#fff4a8', '#d38b12']), size: rand(3, 6), fall: true });
         if (b.state === 'walk') {
           const s = Math.sin(b.t * 0.9);
           const m = d < 240 ? -0.7 : d > 360 ? 0.7 : 0;
@@ -1894,6 +1897,7 @@
         if (a.kind === 'laporte' && a.speed > 300 && Math.random() < dt * 20) puff(a.x, a.y + 30, 'rgba(220,210,190,0.7)');
       }
       if (a.drag && !a.drag.dead) { a.drag.x = a.x + (a.dragDx || 0); a.drag.y = a.y + (a.dragDy || 0); }
+      if (a.kind === 'laporte' && a.mane > 0.5) maneSparkles(a.x, a.y, a.scale || 1, dt);
     }
   }
   function runCut(steps, onDone) {
@@ -2484,6 +2488,7 @@
       if (q.fall) q.vy += 120 * dt; else { q.vx *= 0.92; q.vy *= 0.92; }
     }
     G.particles = G.particles.filter((q) => q.life > 0);
+    if (G.particles.length > 500) G.particles.splice(0, G.particles.length - 500);
     for (const t of G.texts) { t.y -= 22 * dt; t.life -= dt; }
     G.texts = G.texts.filter((t) => t.life > 0);
   }
@@ -2613,26 +2618,39 @@
       ctx.font = FONT(800, 12); ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.fillText(pt.name, pt.x, pt.y - 22);
     }
   }
-  function drawLaporte(a) {
+  // opts: { ghost: tint color for an afterimage, flash: draw as a white silhouette }
+  function drawLaporte(a, opts) {
+    const o = opts || {};
     const scale = a.scale || 1;
     const frame = a.moving ? [1, 0, 2, 0][Math.floor(a.walkT * (a.speed > 300 ? 16 : 9)) % 4] : 0;
-    A.shadow(ctx, a.x, a.y + 38 * scale, 20 * scale, 7 * scale);
-    if (a.mane > 0) {
-      const hue = Math.round(((G.t * 200) % 360) / 15) * 15;
-      A.glow(ctx, a.x, a.y - 10, 90 * scale * a.mane, `hsl(${hue},100%,60%)`, 0.55 * a.mane);
-      A.glow(ctx, a.x, a.y - 10, 50 * scale * a.mane, 'rgba(255,230,120,1)', 0.6 * a.mane);
+    if (!o.ghost) {
+      A.shadow(ctx, a.x, a.y + 38 * scale, 20 * scale, 7 * scale);
+      if (a.mane > 0) {
+        const hue = Math.round(((G.t * 200) % 360) / 15) * 15;
+        A.glow(ctx, a.x, a.y - 10, 90 * scale * a.mane, `hsl(${hue},100%,60%)`, 0.55 * a.mane);
+        A.glow(ctx, a.x, a.y - 10, 50 * scale * a.mane, 'rgba(255,230,120,1)', 0.6 * a.mane);
+      }
     }
     ctx.save();
     ctx.translate(a.x, a.y);
     ctx.scale(scale * (a.face < 0 ? -1 : 1), scale);
-    const spr = A.laporteSprite(frame, a.bald);
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(spr, -spr.width / 2, -spr.height / 2 + (a.moving && frame ? -2 : 0));
-    if (a.mane > 0) A.drawManeSprite(ctx, 0, -27, G.t, a.mane);
-    ctx.restore();
-    if (a.mane > 0.5) {
-      for (let i = 0; i < 2; i++) if (Math.random() < 0.3) G.particles.push({ x: a.x + rand(-30, 30) * scale, y: a.y + rand(-40, 30) * scale, vx: 0, vy: -rand(40, 120), life: 0.5, max: 0.5, color: pick(['#ffd23f', '#fff4a8', '#ff7ae0', '#7fe6ff']), size: rand(2, 5) });
+    const bob = a.moving && frame ? -2 : 0;
+    if (a.mane >= 1) {
+      // the full mane is pre-rendered (much faster than drawing every spike every frame)
+      let img = A.laporteManeSprite(frame, Math.floor(G.t * 8) % 6, o.ghost || null);
+      if (o.flash) img = A.whiteOf(img);
+      ctx.drawImage(img, -A.MANE_CX, -A.MANE_CY + bob);
+    } else {
+      let spr = A.laporteSprite(frame, a.bald);
+      if (o.flash) spr = A.whiteOf(spr);
+      ctx.drawImage(spr, -spr.width / 2, -spr.height / 2 + bob);
+      if (a.mane > 0) A.drawManeSprite(ctx, 0, -27, G.t, a.mane);
     }
+    ctx.restore();
+  }
+  function maneSparkles(x, y, scale, dt) {
+    if (Math.random() < dt * 30) G.particles.push({ x: x + rand(-30, 30) * scale, y: y + rand(-40, 30) * scale, vx: 0, vy: -rand(40, 120), life: 0.5, max: 0.5, color: pick(['#ffd23f', '#fff4a8', '#ff7ae0', '#7fe6ff']), size: rand(2, 5) });
   }
   function drawActor(a) {
     if (a.kind === 'laporte') return drawLaporte(a);
@@ -2681,10 +2699,9 @@
     ctx.translate(e.x, yy);
     if (e.escorted) ctx.rotate(Math.sin(G.t * 10) * 0.15);
     ctx.scale(sc, sc);
-    if (e.flash > 0) ctx.filter = 'brightness(3)';
     if (e.kind === 'wraith') ctx.transform(1, 0, Math.sin(e.t * 2) * 0.45, 1, 0, 0); // skewed!
     if (e.kind === 'bomber' && e.ringT > 0) ctx.rotate(Math.sin(e.t * 40) * 0.25);
-    if (spr) { ctx.imageSmoothingEnabled = false; ctx.save(); if (flip) ctx.scale(-1, 1); ctx.drawImage(spr, -spr.width / 2, -spr.height / 2); ctx.restore(); }
+    if (spr) { const img = e.flash > 0 ? A.whiteOf(spr) : spr; ctx.imageSmoothingEnabled = false; ctx.save(); if (flip) ctx.scale(-1, 1); ctx.drawImage(img, -spr.width / 2, -spr.height / 2); ctx.restore(); }
     if (e.kind === 'dice') {
       const rot = e.state === 'roll' ? e.spin : 0;
       ctx.save(); ctx.rotate(rot);
@@ -2709,7 +2726,6 @@
     }
     if (e.kind === 'spider') textOut('σ', 0, 8, '#ffd23f', FONT(900, 14));
     if (e.kind === 'bomber') { ctx.fillStyle = '#ffd23f'; ctx.fillRect(-1, -30, 2, 8); if (e.ringT > 0 || Math.floor(e.t * 4) % 2) { ctx.fillStyle = '#ff7a1a'; ctx.beginPath(); ctx.arc(0, -32, 3, 0, TAU); ctx.fill(); } }
-    ctx.filter = 'none';
     if (e.kind === 'eye') {
       const p = G.run.player, a = Math.atan2(p.y - e.y, p.x - e.x);
       const ix = Math.cos(a) * 7, iy = Math.sin(a) * 7;
@@ -2740,8 +2756,7 @@
       A.glow(ctx, b.x, b.y - 10, 150, `hsl(${hue},100%,60%)`, 0.5);
       A.glow(ctx, b.x, b.y - 10, 80, 'rgba(255,240,160,1)', 0.55);
       ctx.save(); ctx.globalAlpha = alpha;
-      if (flash) ctx.filter = 'brightness(3)';
-      drawLaporte({ x: b.x, y: b.y, mane: 1, scale: 1.7, moving: b.state === 'dash' || true, walkT: b.t * (b.state === 'dash' ? 2 : 0.6), face: G.run.player.x < b.x ? -1 : 1, speed: 400 });
+      drawLaporte({ x: b.x, y: b.y, mane: 1, scale: 1.7, moving: true, walkT: b.t * (b.state === 'dash' ? 2 : 0.6), face: G.run.player.x < b.x ? -1 : 1, speed: 400 }, { flash });
       ctx.restore();
       if (b.state === 'wind') textOut('!!', b.x, b.y - 110, '#ff5f6d', FONT(900, 34));
     } else {
@@ -3141,19 +3156,15 @@
     if (G.psy <= 0) return;
     ctx.save();
     const k = G.psy;
-    ctx.globalAlpha = 0.45 * k;
-    if (ctx.createConicGradient) {
-      const g = ctx.createConicGradient(G.t * 1.5, RW / 2, RH / 2);
-      for (let i = 0; i <= 6; i++) g.addColorStop(i / 6, `hsl(${(i * 60 + G.t * 120) % 360},100%,55%)`);
-      ctx.fillStyle = g;
-    } else ctx.fillStyle = `hsl(${(G.t * 120) % 360},100%,55%)`;
-    ctx.globalCompositeOperation = 'overlay';
+    // a cheap rainbow wash: one solid fill whose hue cycles (gradients and blend modes were too slow on Chromebooks)
+    ctx.globalAlpha = 0.2 * k;
+    ctx.fillStyle = `hsl(${Math.round((G.t * 140) % 360)},100%,55%)`;
     ctx.fillRect(0, 0, RW, RH);
     ctx.globalCompositeOperation = 'lighter';
-    ctx.globalAlpha = 0.18 * k;
-    for (let i = 0; i < 6; i++) {
-      const R = ((G.t * 160 + i * 120) % 720);
-      ctx.strokeStyle = `hsl(${(i * 60 + G.t * 200) % 360},100%,60%)`; ctx.lineWidth = 18;
+    ctx.globalAlpha = 0.16 * k;
+    for (let i = 0; i < 4; i++) {
+      const R = ((G.t * 160 + i * 180) % 720);
+      ctx.strokeStyle = `hsl(${Math.round((i * 90 + G.t * 200) % 360)},100%,60%)`; ctx.lineWidth = 12;
       ctx.beginPath(); ctx.arc(RW / 2, RH / 2, R, 0, TAU); ctx.stroke();
     }
     ctx.restore();
@@ -3236,11 +3247,12 @@
     }
     for (const b of G.bolts) {
       ctx.save(); ctx.globalCompositeOperation = 'lighter';
-      ctx.strokeStyle = b.life > 0.09 ? '#ffffff' : '#ffe27a'; ctx.lineWidth = 3; ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 12;
       ctx.beginPath(); ctx.moveTo(b.x, b.y);
       let x = b.x, y = b.y;
       for (let i = 0; i < 7; i++) { x += Math.cos(b.a) * b.len / 7 + rand(-14, 14); y += Math.sin(b.a) * b.len / 7 + rand(-14, 14); ctx.lineTo(x, y); }
-      ctx.stroke(); ctx.restore();
+      ctx.strokeStyle = 'rgba(255,210,63,0.35)'; ctx.lineWidth = 10; ctx.stroke();
+      ctx.strokeStyle = b.life > 0.09 ? '#ffffff' : '#ffe27a'; ctx.lineWidth = 3; ctx.stroke();
+      ctx.restore();
     }
     for (const st of G.stamps) {
       ctx.save(); ctx.translate(st.x, st.y - (0.8 - st.life) * 20); ctx.rotate(st.rot); ctx.globalAlpha = Math.min(1, st.life * 2);
@@ -3257,28 +3269,28 @@
     const phase = b.lastPhase || 0;
     // afterimages
     b.trail = b.trail || [];
-    if (G.mode === 'play') { b.trail.push({ x: b.x, y: b.y }); if (b.trail.length > 8) b.trail.shift(); }
-    b.trail.forEach((tp, i) => { ctx.save(); ctx.globalAlpha = (i / b.trail.length) * 0.22; ctx.filter = `hue-rotate(${i * 40}deg)`; drawLaporte({ x: tp.x, y: tp.y, mane: 1, scale: 1.7, moving: false, walkT: 0, face: 1, speed: 0 }); ctx.restore(); });
+    if (G.mode === 'play' && (b.trailTick = (b.trailTick || 0) + 1) % 3 === 0) { b.trail.push({ x: b.x, y: b.y }); if (b.trail.length > 4) b.trail.shift(); }
+    const tints = ['#ffd23f', '#ff7ae0', '#7fe6ff', '#9be36b'];
+    b.trail.forEach((tp, i) => { ctx.save(); ctx.globalAlpha = 0.12 + i * 0.06; drawLaporte({ x: tp.x, y: tp.y, mane: 1, scale: 1.7, moving: false, walkT: 0, face: 1, speed: 0 }, { ghost: tints[i % 4] }); ctx.restore(); });
     // speed lines radiating from the boss
     ctx.save(); ctx.globalCompositeOperation = 'lighter';
-    for (let i = 0; i < 10 + phase * 6; i++) {
+    for (let i = 0; i < 8 + phase; i++) {
       const a = rand(0, TAU), r0 = rand(140, 240), r1 = r0 + rand(80, 260);
       ctx.strokeStyle = `hsla(${Math.round((G.t * 200 + i * 30) % 360)},100%,70%,0.25)`; ctx.lineWidth = rand(1, 4);
       ctx.beginPath(); ctx.moveTo(b.x + Math.cos(a) * r0, b.y + Math.sin(a) * r0); ctx.lineTo(b.x + Math.cos(a) * r1, b.y + Math.sin(a) * r1); ctx.stroke();
     }
     ctx.restore();
-    // golden hair falling everywhere
-    if (G.mode === 'play' && Math.random() < 0.6) G.particles.push({ x: rand(T, RW - T), y: T, vx: rand(-30, 30), vy: rand(40, 120), life: 2.5, max: 2.5, color: pick(['#ffd23f', '#fff4a8', '#d38b12']), size: rand(3, 6), fall: true });
   }
   function drawZaps() {
     if (!G.zaps) return;
     ctx.save();
-    ctx.strokeStyle = '#bff8ff'; ctx.lineWidth = 3; ctx.shadowColor = '#7fe6ff'; ctx.shadowBlur = 10;
     for (const z of G.zaps) {
       ctx.globalAlpha = z.life / 0.18;
       ctx.beginPath(); ctx.moveTo(z.x1, z.y1);
       for (let i = 1; i < 6; i++) ctx.lineTo(lerp(z.x1, z.x2, i / 6) + rand(-8, 8), lerp(z.y1, z.y2, i / 6) + rand(-8, 8));
-      ctx.lineTo(z.x2, z.y2); ctx.stroke();
+      ctx.lineTo(z.x2, z.y2);
+      ctx.strokeStyle = 'rgba(127,230,255,0.35)'; ctx.lineWidth = 9; ctx.stroke();
+      ctx.strokeStyle = '#bff8ff'; ctx.lineWidth = 3; ctx.stroke();
     }
     ctx.restore();
   }
