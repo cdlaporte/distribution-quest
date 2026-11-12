@@ -674,12 +674,17 @@
     p.ell(4.5, 4.5, w, 4, (x, y, e) => (x + 0.5 < 4.5 && e > 0.4 ? '#fff0a0' : e > 0.6 ? '#c89411' : '#ffd23f'));
     if (w > 2) p.rect(4, 2, 1, 5, '#c89411');
   }));
-  const heartSprite = (half) => cached('heart' + half, () => sprite(11, 10, 3, (p) => {
-    const R = '#ff4f6d', D = '#c22a48', L = '#ffb0be';
-    const rows = ['.RRR...RRR.', 'RRLRR.RRRRR', 'RLRRRRRRRRD', 'RRRRRRRRRRD', 'RRRRRRRRRDD', '.RRRRRRRRD.', '..RRRRRRD..', '...RRRRD...', '....RRD....', '.....D.....'];
-    p.rows(0, 0, rows, { R, D, L });
-    if (half) for (let y = 0; y < 10; y++) for (let x = 6; x < 11; x++) if (p.get(x, y)) p.px(x, y, '#3a2a40');
-  }));
+  // state: 'full' (or false), 'half' (left half red), 'empty'
+  const heartSprite = (state) => {
+    const st = state === 'half' || state === 'empty' ? state : 'full';
+    return cached('heart' + st, () => sprite(11, 10, 3, (p) => {
+      const R = '#ff4f6d', D = '#c22a48', L = '#ffb0be';
+      const rows = ['.RRR...RRR.', 'RRLRR.RRRRR', 'RLRRRRRRRRD', 'RRRRRRRRRRD', 'RRRRRRRRRDD', '.RRRRRRRRD.', '..RRRRRRD..', '...RRRRD...', '....RRD....', '.....D.....'];
+      p.rows(0, 0, rows, { R, D, L });
+      const from = st === 'half' ? 6 : st === 'empty' ? 0 : 11;
+      for (let y = 0; y < 10; y++) for (let x = from; x < 11; x++) if (p.get(x, y)) p.px(x, y, (x + y) % 3 ? '#3a2a40' : '#4a3a55');
+    }));
+  };
   const edamameSprite = () => cached('edamame', () => sprite(11, 8, 3, (p) => {
     // one dry-roasted edamame bean: oval, khaki green with toasted speckles and a seam
     p.ball(5.5, 4, 5.2, 3.6, ['#5f6b25', '#8e9c3c', '#b9c463', '#e6ebae']);

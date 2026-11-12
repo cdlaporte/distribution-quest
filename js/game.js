@@ -569,7 +569,7 @@
     room.cleared = true;
     G.locked = false;
     sfx.door();
-    if (p.meanRev && p.hp < p.maxHp / 2) { p.hp++; floatText(p.x, p.y - 30, 'Regression to the mean! +1 ♥', '#ff8fa8', 2); sfx.heart(); }
+    if (p.meanRev && p.hp < p.maxHp / 2) { p.hp = Math.min(p.maxHp, p.hp + 1); floatText(p.x, p.y - 30, 'Regression to the mean! +1 ♥', '#ff8fa8', 2); sfx.heart(); }
     if (room.type === 'combat') {
       const chestChance = settings.extra ? 0.75 : 0.5;
       if (Math.random() < chestChance) {
@@ -1264,7 +1264,7 @@
       sfx.shield();
       return;
     }
-    p.hp -= 1;
+    p.hp -= 0.5; // each hit takes half a heart
     p.inv = 1.1;
     G.shake = 9;
     sfx.hurt();
@@ -2380,7 +2380,7 @@
       k.x = clamp(k.x, T + 8, RW - T - 8); k.y = clamp(k.y, T + 8, RH - T - 8);
       if (d < p.r + 14 && k.t > 0.25) {
         if (k.kind === 'coin') { run.gold += p.goldMult; k.dead = true; sfx.coin(); floatText(k.x, k.y - 10, '+' + p.goldMult, '#ffd966', 0.6); }
-        if (k.kind === 'heart' && p.hp < p.maxHp) { p.hp++; k.dead = true; sfx.heart(); floatText(k.x, k.y - 10, '+1 ♥', '#ff6b8a'); }
+        if (k.kind === 'heart' && p.hp < p.maxHp) { p.hp = Math.min(p.maxHp, p.hp + 1); k.dead = true; sfx.heart(); floatText(k.x, k.y - 10, '+1 ♥', '#ff6b8a'); }
         if (k.kind === 'edamame') { k.dead = true; gainEdamame(1); }
       }
     }
@@ -3401,7 +3401,7 @@
     for (let i = 0; i < p.maxHp; i++) {
       const x = 22 + i * hs, y = 20;
       ctx.save(); ctx.globalAlpha = i < p.hp ? 1 : 0.9;
-      A.blit(ctx, A.heartSprite(i >= p.hp), x, y);
+      A.blit(ctx, A.heartSprite(p.hp >= i + 1 ? 'full' : p.hp >= i + 0.5 ? 'half' : 'empty'), x, y);
       ctx.restore();
     }
     // coins / edamame
@@ -3411,7 +3411,7 @@
     textOut(String(run.edamame), 128, 53, '#c3cf6e', FONT(900, 18), 'left');
     G.hudIcons.push({ x: 10, y: 34, w: 80, h: 26, title: `Coins: ${run.gold}`, desc: 'Spend them at the talking vending machine shop.' });
     G.hudIcons.push({ x: 94, y: 34, w: 64, h: 26, title: `Edamame eaten: ${run.edamame}`, desc: 'Dried edamame beans! Each one heals 1 heart and gives Protein Power (+50% damage for 10 seconds).' + (run.eddie ? ' Eddie the Edamame has joined your party!' : run.edamame < 5 ? ` Eat ${5 - run.edamame} more and something special happens...` : '') });
-    G.hudIcons.push({ x: 8, y: 6, w: Math.min(310, 30 * p.maxHp), h: 28, title: `Hearts: ${p.hp} / ${p.maxHp}`, desc: 'Wrong answers never cost hearts. Find hearts from monsters, shrines, the shop and the lounge couch.' });
+    G.hudIcons.push({ x: 8, y: 6, w: Math.min(310, 30 * p.maxHp), h: 28, title: `Hearts: ${p.hp} / ${p.maxHp}`, desc: 'Each hit takes half a heart. Wrong answers never cost hearts. Find hearts from monsters, shrines, the shop and the lounge couch.' });
     // dash
     const dk = p.dashCdT > 0 ? 1 - p.dashCdT / p.dashCd : 1;
     ctx.fillStyle = '#2a2445'; rr(166, 41, 66, 11, 5); ctx.fill();

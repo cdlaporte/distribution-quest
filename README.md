@@ -38,7 +38,7 @@ based on that section.
   34, 42, 51, 65, 69, 74, 78, 84, 85, 85, 86, 87 is the 58th percentile.
 * **Section 3.4 is done in Desmos** in another tab. The problem window has an "Open Desmos"
   link, and the hints walk through `normaldist(μ, σ)` and `.inversecdf(p)`.
-* Wrong answers never cost health. Students get several hints, and after 2 misses they can see
+* Wrong answers never cost health. (In fights, each hit costs half a heart.) Students get several hints, and after 2 misses they can see
   the full worked solution, but then they must solve a fresh problem for the reward.
 * A **perfect solve** (first try, no hints) earns a better reward.
 * The first time a student sees each section, Mr. Laporte gives a one-line tip.
