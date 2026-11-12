@@ -228,6 +228,7 @@
     </div>
     <label class="chk"><input type="checkbox" id="set-extra"> Extra practice: more locked Stat Chests show up after fights</label>
     <label class="chk"><input type="checkbox" id="set-sound"> Sound effects</label>
+    <label class="chk hidden" id="set-fun-row"><input type="checkbox" id="set-fun"><span>🏆 <b>Just for fun</b> (unlocked by beating the game): answers are filled in for you, so you can keep playing</span></label>
     <div class="warn" id="set-warn"></div>
     <div class="row"><button class="btn primary" data-back>Done</button><button class="btn ghost small" id="btn-teacher">🔐 Teacher options</button></div>
   </div>
@@ -249,7 +250,7 @@
   <div class="panel" style="width:min(620px,100%)">
     <h2>🍎 Teacher options</h2>
     <p class="note">These are saved on this computer only. Students can't open this page without the PIN.</p>
-    <label class="chk"><input type="checkbox" id="t-skip"><span><b>Skip problems</b>: chests, shrines and boss shields open instantly (for playtesting). A "TEACHER MODE" tag shows on screen while this is on.</span></label>
+    <label class="chk"><input type="checkbox" id="t-skip"><span><b>Fill in answers</b>: every question still appears, with the correct answer already filled in. Just press Enter (for fast playtesting). A "TEACHER MODE" tag shows on screen while this is on.</span></label>
     <div class="t-row">Start a new game on
       <select id="t-floor"><option value="1">Floor 1 (normal)</option><option value="2">Floor 2</option><option value="3">Floor 3</option><option value="4">Floor 4</option><option value="5">Floor 5</option></select>
       <span class="note">(with a few upgrades)</span>
@@ -289,6 +290,7 @@
     <h2 id="end-title" style="text-align:center;font-size:30px;margin-bottom:4px"></h2>
     <div id="end-lap"><canvas id="end-face" width="32" height="32"></canvas><div id="end-sub"></div></div>
     <div id="end-stats"></div>
+    <label class="chk hidden" id="end-fun-row" style="justify-content:center"><input type="checkbox" id="end-fun"><span>🏆 Unlocked! Replay <b>just for fun</b>: answers are filled in for you</span></label>
     <div class="row">
       <button class="btn gold hidden" id="end-retry">↻ Try this floor again</button>
       <button class="btn primary hidden" id="end-again">Play again</button>

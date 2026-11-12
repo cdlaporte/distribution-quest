@@ -64,8 +64,10 @@ right back into the final fight.
 ## Teacher options (PIN 9631)
 
 In **Settings → 🔐 Teacher options**, enter the PIN to:
-* **Skip problems**: chests, shrines and shields open instantly, for fast playtesting. A red
-  "TEACHER MODE" tag shows on screen while it's on, so you'll notice if it's left on.
+* **Fill in answers**: every question still shows up, but the correct answer is already filled in, so
+  you just press Enter. That way you can see the questions while playtesting quickly. Mr. Laporte still
+  solves some chests for you, so you can see how often that happens. A red "TEACHER MODE" tag shows on
+  screen while it's on, so you'll notice if it's left on.
 * **Start on floor N** with a few random upgrades.
 
 These are saved on that computer only. To change the PIN, open the browser console on the game page, run `DQ.pinHash('1234')` with the
@@ -75,14 +77,26 @@ The end screen shows the student's name, problems solved per section, play time,
 like `F6-S38-A45-P27-WJS` (floor reached, solved, attempted, perfect, Win/Loss + initials)
 that they can screenshot or paste into a Google Form.
 
-## Enemies and upgrades
+## Just-for-fun mode
 
-Monsters get much tougher on each floor, and bosses take real effort. Besides slimes, bats, skeleton
+After a student beats the game, the end screen (and Settings) unlocks a **"just for fun"** toggle that
+fills in the answers for them, the same way teacher mode does, so they can replay for fun. This doesn't
+need the PIN, and those runs don't count problems as solved.
+
+## Rooms, enemies and upgrades
+
+Some fight rooms are **big rooms** (two screens wide or tall, or both). The camera pans with you, and
+they hold more monsters.
+
+Monsters get much tougher on each floor, and bosses take real effort. New monster types appear as you go
+deeper, and Mr. Laporte gives a quick tip the first time you meet each one. Besides slimes, bats, skeleton
 archers, boars, eyeballs and ghosts there are **Box Plot Knights** (their box-plot shield blocks shots
 from the front), **Dice Cubes** (fire as many shots as the number they roll), **Sigma Spiders** (their
 webs slow you), **Bell Bombers** (ring, then explode) and **Skew Wraiths** (dash in lopsided curves).
+Floor 1 has the basics, Dice Cubes and eyeballs arrive on Floor 2, knights and ghosts on Floor 3, spiders
+and bombers on Floor 4, and wraiths on Floor 5.
 
-Plain stat boosts are uncommon. Most power-ups have unique, visible effects, for example: Standard Deviation
+The most powerful (epic) power-ups show up less often, and each offer has at most one plain stat boost. Most power-ups have unique, visible effects, for example: Standard Deviation
 Orbitals, Bell Curve Boomerang, Regression Laser, Bootstrap Clones, Random Walk Rockets, Chalk Trail,
 Stem-and-Leaf Vines, Percentile Piñata, Pie Chart Buzzsaw, Tail Event meteors, A+ Grading crits,
 Normal Nova, Z-Score Zapper, Empirical Aura and the Edamame Bean Blaster. Hover over any power-up in the
@@ -99,6 +113,8 @@ top bar to see what it does. Shop items show their effect when you walk up to th
   vending machine. Each one heals and gives **Protein Power** (+50% damage). Eat 5 and
   **Eddie the Edamame** joins your party. There's also the **Edamame Bean Blaster** item.
   Typing `EDAMAME` (on the title screen, or once per run while playing) is a secret shortcut.
+* **The freshman stampede (rare):** Mr. Laporte sprints through yelling that the freshmen from his study
+  hall got out, and a loud, phone-glued herd of freshmen tramples every monster in the room.
 * **"SECURITY!"** Sometimes Mr. Laporte bursts in, blows a whistle, and two security guards in red
   escort the toughest monster out by the arms.
 * **Enemies who join you:** the lonely *Outlier* ghost or the last slime in a room sometimes

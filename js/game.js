@@ -11,9 +11,17 @@
   const $ = (id) => document.getElementById(id);
 
   // ================= constants =================
-  const T = 48, COLS = 23, ROWS = 13, RW = COLS * T, RH = ROWS * T, HUD = 64;
-  const CW = RW, CH = RH + HUD;
-  const DC = [10, 11, 12], DR = [5, 6, 7];
+  // The screen shows a 23 x 13 tile view. Most rooms are exactly that size; big rooms are larger and the camera follows you.
+  const T = 48, VCOLS = 23, VROWS = 13, VW = VCOLS * T, VH = VROWS * T, HUD = 64;
+  const CW = VW, CH = VH + HUD;
+  let COLS = VCOLS, ROWS = VROWS, RW = VW, RH = VH;
+  let DC = [10, 11, 12], DR = [5, 6, 7];
+  function setDims(room) {
+    COLS = (room && room.cols) || VCOLS; ROWS = (room && room.rows) || VROWS;
+    RW = COLS * T; RH = ROWS * T;
+    const mc = Math.floor(COLS / 2), mr = Math.floor(ROWS / 2);
+    DC = [mc - 1, mc, mc + 1]; DR = [mr - 1, mr, mr + 1];
+  }
   const FLOOR = 0, WALL = 1, ROCK = 2, PIT = 3;
   const DIRS = { n: [0, -1], s: [0, 1], e: [1, 0], w: [-1, 0] };
   const OPP = { n: 's', s: 'n', e: 'w', w: 'e' };
@@ -50,9 +58,9 @@
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage blocked */ } },
     del(k) { try { localStorage.removeItem(k); } catch (e) { /* ignore */ } },
   };
-  const settings = Object.assign({ sections: { '3.1': true, '3.2': true, '3.3': true, '3.4': true, '3.5': true }, mode: 'floor', extra: false, sound: true, name: '', teacherSkip: false, startFloor: 1 }, store.get(SKEY) || {});
+  const settings = Object.assign({ sections: { '3.1': true, '3.2': true, '3.3': true, '3.4': true, '3.5': true }, mode: 'floor', extra: false, sound: true, name: '', teacherSkip: false, startFloor: 1, funUnlocked: false, funMode: false }, store.get(SKEY) || {});
   let teacherUnlocked = false;
-  const skipOn = () => !!settings.teacherSkip;
+  const skipOn = () => !!settings.teacherSkip || !!(G.run && G.run.fun);
   const saveSettings = () => store.set(SKEY, settings);
   const enabledSections = () => SECTIONS.filter((s) => settings.sections[s]);
 
@@ -214,16 +222,23 @@
   function rollItems(n, pool) {
     const have = G.run ? G.run.items : [];
     const src = (pool || ITEMS).filter((i) => !(i.unique && have.includes(i.id)));
+    // weighted draw without replacement: epic items are rarer, and at most one plain stat boost per offer
+    const W = { common: 1, rare: 0.55, epic: 0.26, staff: 1 };
     const out = [];
-    const bag = shuffle(src);
-    // plain stat boosts are the minority: at most one per offering, and only some of the time
-    let statSlots = Math.random() < 0.45 ? 1 : 0;
-    for (const it of bag) {
-      if (out.length >= n) break;
-      if (it.stat) { if (statSlots <= 0) continue; statSlots--; }
+    let bag = src.slice();
+    let statUsed = false;
+    while (out.length < n && bag.length) {
+      const pool = bag.filter((it) => !(it.stat && statUsed));
+      if (!pool.length) break;
+      const weights = pool.map((it) => (it.stat ? 1.1 : W[it.rarity] || 1));
+      let r = Math.random() * weights.reduce((a, b) => a + b, 0);
+      let k = 0;
+      while (r > weights[k] && k < pool.length - 1) { r -= weights[k]; k++; }
+      const it = pool[k];
       out.push(it);
+      if (it.stat) statUsed = true;
+      bag = bag.filter((x) => x !== it);
     }
-    for (const it of bag) { if (out.length >= n) break; if (!out.includes(it)) out.push(it); }
     return out;
   }
   function giveItem(item) {
@@ -240,7 +255,7 @@
     mode: 'title', run: null, room: null, t: 0, shake: 0, fade: 0, banner: null, flash: 0,
     enemies: [], pbullets: [], ebullets: [], particles: [], texts: [], hazards: [], timers: [], actors: [], ambient: [],
     locked: false, bg: null, deathT: 0, hint: null, talk: null, bark: null, cut: null, psy: 0, titleT: 0,
-    beams: [], clones: [], stamps: [], rockets: [], chalk: [], saws: [], novas: [], vfxRings: [], bolts: [], zoom: 0, slowmo: 0,
+    cam: { x: 0, y: 0 }, beams: [], clones: [], stamps: [], rockets: [], chalk: [], saws: [], novas: [], vfxRings: [], bolts: [], zoom: 0, slowmo: 0,
   };
   DQ.G = G;
 
@@ -314,6 +329,12 @@
       if (!r) break;
       r.type = s; r.cleared = true;
     }
+    // some fight rooms are big (the camera pans with you)
+    for (const r of rooms.values()) {
+      if (r.type !== 'combat' || Math.random() > 0.3) continue;
+      const [c, rr] = pick([[45, 13], [45, 13], [23, 25], [23, 25], [45, 25]]);
+      r.cols = c; r.rows = rr; r.big = true;
+    }
     for (const r of rooms.values()) buildRoom(r);
     if (Math.random() < (run.lounges === 0 && floor >= 2 ? 0.95 : 0.75)) addLounge(rooms);
     run.floorSolved = 0;
@@ -341,6 +362,7 @@
         rooms.set(k(nx, ny), L);
         buildRoom(L);
         h.doors[d] = L; h.secretDir = d; h.secretHits = 0; h.secretOpen = false;
+        setDims(h);
         h.tiles && gapTiles(d).forEach(([c, r]) => (h.tiles[r][c] = WALL));
         return;
       }
@@ -364,6 +386,7 @@
   }
 
   function buildRoom(room) {
+    setDims(room);
     const t = [];
     for (let r = 0; r < ROWS; r++) { t.push([]); for (let c = 0; c < COLS; c++) t[r].push(r === 0 || c === 0 || r === ROWS - 1 || c === COLS - 1 ? WALL : FLOOR); }
     if (room.doors.n) DC.forEach((c) => (t[0][c] = FLOOR));
@@ -372,7 +395,7 @@
     if (room.doors.e) DR.forEach((r) => (t[r][COLS - 1] = FLOOR));
     room.tiles = t;
     room.deco = [];
-    for (let i = 0; i < 16; i++) room.deco.push({ x: rand(T * 1.5, RW - T * 1.5), y: rand(T * 1.5, RH - T * 1.5), k: irand(0, 2), a: rand(0, 3) });
+    for (let i = 0; i < 16 * (COLS * ROWS) / (VCOLS * VROWS); i++) room.deco.push({ x: rand(T * 1.5, RW - T * 1.5), y: rand(T * 1.5, RH - T * 1.5), k: irand(0, 2), a: rand(0, 3) });
     const cx = RW / 2, cy = RH / 2;
     const set = (c, r, v) => {
       if (DC.includes(c) || DR.includes(r)) return;
@@ -388,6 +411,11 @@
       if (layout === 'quads') { for (let i = 0; i < 4; i++) mirror(irand(3, 8), irand(2, 3), ROCK); }
       if (layout === 'scatter') { for (let i = 0; i < 6; i++) set(irand(2, COLS - 3), irand(2, ROWS - 3), ROCK); }
       if (layout !== 'scatter' && Math.random() < 0.3) for (let i = 0; i < 2; i++) mirror(irand(7, 9), irand(1, 3), PIT);
+      if (room.big) {
+        const mc = Math.floor(COLS / 2), mr = Math.floor(ROWS / 2);
+        for (let i = 0; i < 5; i++) { const c = irand(3, mc - 2), r = irand(2, mr - 1); mirror(c, r, ROCK); if (Math.random() < 0.5) mirror(c + 1, r, ROCK); }
+        if (Math.random() < 0.5) for (let i = 0; i < 3; i++) mirror(irand(4, mc - 3), irand(3, mr - 2), PIT);
+      }
     }
     if (room.type === 'boss') [[3, 2], [3, 10]].forEach(([c, r]) => mirror(c, r, ROCK));
     if (room.type === 'treasure') room.objects.push({ kind: 'chest', golden: true, x: cx, y: cy, r: 24, mimic: Math.random() < 0.14 });
@@ -423,13 +451,14 @@
   // ================= rooms =================
   function enterRoom(room, fromDir) {
     const run = G.run;
+    setDims(room);
     G.room = room;
     run.cur = room;
     const firstVisit = !room.visited;
     room.visited = true; room.seen = true;
     Object.entries(room.doors).forEach(([d, n]) => { if (!isSecretShut(room, d)) n.seen = true; });
     G.enemies = []; G.pbullets = []; G.ebullets = []; G.particles = []; G.hazards = []; G.timers = [];
-    G.beams = []; G.clones = []; G.stamps = []; G.rockets = []; G.chalk = []; G.saws = []; G.novas = []; G.vfxRings = []; G.bolts = [];
+    G.beams = []; G.clones = []; G.stamps = []; G.rockets = []; G.chalk = []; G.saws = []; G.novas = []; G.vfxRings = []; G.bolts = []; G.stampede = 0;
     G.actors = G.actors.filter((a) => a.keep);
     G.locked = false;
     G.fade = 0.3;
@@ -445,13 +474,15 @@
     room.enteredFrom = fromDir;
     if (!room.cleared && room.type === 'combat') {
       const f = run.floor;
-      const n = Math.min(9, 4 + Math.floor((f - 1) * 0.6) + irand(0, 1) + (f >= 3 ? 1 : 0));
+      const area = (COLS * ROWS) / (VCOLS * VROWS);
+      const n = Math.min(18, Math.round((4 + Math.floor((f - 1) * 0.7) + irand(0, 1) + (f >= 3 ? 1 : 0)) * (area > 1 ? 0.75 + area * 0.45 : 1)));
+      // each floor introduces new monsters
       const kinds = [
-        ['slime', 'slime', 'slime', 'bat', 'bat', 'archer', 'boar', 'knight'],
-        ['slime', 'slime', 'bigslime', 'bat', 'archer', 'boar', 'eye', 'knight', 'dice', 'dice'],
-        ['slime', 'bigslime', 'bat', 'archer', 'boar', 'eye', 'ghost', 'ghost', 'knight', 'dice', 'spider', 'spider'],
-        ['bigslime', 'bat', 'archer', 'boar', 'eye', 'ghost', 'knight', 'dice', 'spider', 'bomber', 'bomber'],
-        ['bigslime', 'bat', 'archer', 'archer', 'eye', 'ghost', 'knight', 'dice', 'spider', 'bomber', 'wraith', 'wraith'],
+        ['slime', 'slime', 'slime', 'bat', 'bat', 'archer', 'boar'],
+        ['slime', 'slime', 'bigslime', 'bat', 'archer', 'boar', 'eye', 'dice', 'dice'],
+        ['slime', 'bigslime', 'bat', 'archer', 'boar', 'eye', 'dice', 'ghost', 'ghost', 'knight', 'knight'],
+        ['bigslime', 'bat', 'archer', 'boar', 'eye', 'ghost', 'dice', 'knight', 'spider', 'spider', 'bomber', 'bomber'],
+        ['bigslime', 'bat', 'archer', 'archer', 'eye', 'ghost', 'dice', 'knight', 'spider', 'bomber', 'wraith', 'wraith', 'wraith'],
       ][f - 1] || ['slime'];
       const spots = spawnSpots(room, p);
       for (let i = 0; i < n && spots.length; i++) {
@@ -464,7 +495,9 @@
       }
       G.locked = G.enemies.length > 0;
       if (G.locked) sfx.door();
-      maybeSecurity();
+      const fresh = G.enemies.map((e) => e.kind).find((k) => S.enemyTips[k] && !run.flags['met_' + k]);
+      if (fresh) { run.flags['met_' + fresh] = true; later(0.9, () => bark(S.enemyTips[fresh], 'serious', 4.5)); }
+      else if (!maybeStampede()) maybeSecurity();
     }
     if (!room.cleared && room.type === 'boss') {
       G.locked = true;
@@ -483,9 +516,20 @@
       return;
     }
     G.bg = renderBG(room);
+    snapCamera();
     if (firstVisit) roomTips(room);
   }
 
+  function camTarget() {
+    const p = G.run.player;
+    return { x: clamp(p.x - VW / 2, 0, RW - VW), y: clamp(p.y - VH / 2, 0, RH - VH) };
+  }
+  function snapCamera() { G.cam = camTarget(); }
+  function updateCamera(dt) {
+    const t = camTarget();
+    G.cam.x = lerp(G.cam.x, t.x, Math.min(1, dt * 8));
+    G.cam.y = lerp(G.cam.y, t.y, Math.min(1, dt * 8));
+  }
   function roomTips(room) {
     const run = G.run, fl = run.flags;
     if (room.type === 'lounge' && !fl.loungeTalk) {
@@ -504,7 +548,7 @@
 
   function spawnSpots(room, p) {
     const seen = new Set();
-    const q = [[11, 6]];
+    const q = [[Math.floor(COLS / 2), Math.floor(ROWS / 2)]];
     const spots = [];
     while (q.length) {
       const [c, r] = q.pop();
@@ -585,7 +629,7 @@
 
   // ================= enemies =================
   function makeEnemy(kind, x, y) {
-    const f = G.run.floor, hm = [1, 1.7, 2.5, 3.4, 4.4][Math.min(f, 5) - 1], sm = 1 + 0.06 * (Math.min(f, 5) - 1);
+    const f = G.run.floor, hm = [1, 1.9, 3.0, 4.4, 6.0][Math.min(f, 5) - 1], sm = 1 + 0.06 * (Math.min(f, 5) - 1);
     const base = { kind, x, y, t: Math.random() * 3, flash: 0, slow: 0, spawn: 0.7, kx: 0, ky: 0, tint: ENEMY_TINTS[Math.min(f, 5) - 1] };
     const defs = {
       slime: { r: 15, hp: 3, speed: 78 },
@@ -771,12 +815,12 @@
 
   // ================= bosses =================
   const BOSSES = [
-    { name: 'Rankenstein', title: 'Built from every dot of every dotplot', color: '#86b273', r: 44, hp: 220 },
-    { name: 'The Uniform Monolith', title: 'Perfectly flat. Perfectly fair. Perfectly rectangular.', color: '#d9b06a', r: 42, hp: 340 },
-    { name: 'Zed, the Standardizer', title: 'Measures everything in standard deviations', color: '#4fc27a', r: 40, hp: 460 },
-    { name: 'The Great Bellringer', title: 'Its toll is shaped like a bell curve', color: '#d99a3a', r: 48, hp: 600 },
-    { name: 'The Empirical Emperor', title: 'Ruler of 68, 95 and 99.7', color: '#c66bd1', r: 44, hp: 760 },
-    { name: 'SUPER MANE LAPORTE', title: 'Powered by Secret Hair Tonic', color: '#ffd23f', r: 34, hp: 1150 },
+    { name: 'Rankenstein', title: 'Built from every dot of every dotplot', color: '#86b273', r: 44, hp: 270 },
+    { name: 'The Uniform Monolith', title: 'Perfectly flat. Perfectly fair. Perfectly rectangular.', color: '#d9b06a', r: 42, hp: 470 },
+    { name: 'Zed, the Standardizer', title: 'Measures everything in standard deviations', color: '#4fc27a', r: 40, hp: 720 },
+    { name: 'The Great Bellringer', title: 'Its toll is shaped like a bell curve', color: '#d99a3a', r: 48, hp: 1000 },
+    { name: 'The Empirical Emperor', title: 'Ruler of 68, 95 and 99.7', color: '#c66bd1', r: 44, hp: 1350 },
+    { name: 'SUPER MANE LAPORTE', title: 'Powered by Secret Hair Tonic', color: '#ffd23f', r: 34, hp: 2100 },
   ];
   function makeBoss(floor) {
     const v = Math.min(floor, 6) - 1;
@@ -1302,7 +1346,7 @@
     }
     let ax = (keys.ArrowRight ? 1 : 0) - (keys.ArrowLeft ? 1 : 0);
     let ay = (keys.ArrowDown ? 1 : 0) - (keys.ArrowUp ? 1 : 0);
-    if (!ax && !ay && mouse.down) { ax = mouse.x - p.x; ay = mouse.y - p.y; }
+    if (!ax && !ay && mouse.down) { ax = mouse.x + G.cam.x - p.x; ay = mouse.y + G.cam.y - p.y; }
     const al = Math.hypot(ax, ay);
     if (al) { p.faceX = ax / al; p.faceY = ay / al; } else if (ml) { p.faceX = mx; p.faceY = my; }
     p.fireT -= dt;
@@ -1558,14 +1602,13 @@
   }
   function openProblem(obj, opts) {
     const run = G.run;
-    if (skipOn() || run.freeSolves > 0) {
-      const free = !skipOn();
-      if (free) { run.freeSolves--; bark(S.freeSolve, 'happy', 3.2); }
-      else { run.skipped++; floatText(run.player.x, run.player.y - 40, 'Teacher mode: problem skipped', '#ffd23f', 1.6); }
+    if (run.freeSolves > 0) {
+      run.freeSolves--; bark(S.freeSolve, 'happy', 3.2);
       clearInput();
       setTimeout(() => opts.onSolve(false), 50);
       return;
     }
+    M.auto = skipOn(); // teacher / just-for-fun mode: the answer is filled in, just press Enter
     if (!obj.problem) { obj.problem = genProblem(opts.hard); obj.pst = { wrong: 0, hints: 0, revealed: false, sel: {} }; }
     M.obj = obj; M.opts = opts;
     G.mode = 'modal';
@@ -1607,6 +1650,12 @@
         box.appendChild(wrap);
       }
     });
+    if (M.auto) {
+      p.parts.forEach((part, k) => {
+        if (part.kind === 'num') { const inp = box.querySelector(`input[data-k="${k}"]`); if (inp) inp.value = String(part.answer); }
+        else { st.sel[k] = part.correct; const b = box.querySelectorAll('.part-choice .choice')[part.correct]; if (b) b.classList.add('sel'); }
+      });
+    }
     $('pm-hints').innerHTML = p.hints.slice(0, st.hints).map((h, i) => `<div class="hint"><b>Hint ${i + 1}:</b> ${h}</div>`).join('');
     // Mr. Laporte's tip the first time you see each section
     const run = G.run;
@@ -1618,7 +1667,7 @@
     }
     $('pm-solution').innerHTML = '';
     $('pm-solution').classList.add('hidden');
-    setFeedback('', '');
+    setFeedback(M.auto ? (G.run.fun ? 'Just-for-fun mode: the answer is filled in. Press Enter!' : 'Teacher mode: the correct answer is filled in. Press Enter.') : '', M.auto ? 'warn' : '');
     $('pm-hint').disabled = st.hints >= p.hints.length;
     $('pm-hint').textContent = st.hints >= p.hints.length ? 'No more hints' : `Hint (${p.hints.length - st.hints} left)`;
     $('pm-reveal').classList.toggle('hidden', st.wrong < 2);
@@ -1676,9 +1725,9 @@
   }
   function solvedProblem() {
     const o = M.obj, st = o.pst, p = o.problem;
-    const perfect = st.wrong === 0 && st.hints === 0;
-    recordResult(p.section, true, perfect, st.hints);
-    G.run.floorSolved++;
+    const perfect = st.wrong === 0 && st.hints === 0 && !M.auto;
+    if (M.auto) G.run.skipped++;
+    else { recordResult(p.section, true, perfect, st.hints); G.run.floorSolved++; }
     o.problem = null;
     sfx.correct();
     setFeedback(perfect ? '⭐ PERFECT! First try, no hints! ⭐' : '✔ Correct! Nice work!', 'ok');
@@ -1929,6 +1978,52 @@
   $('cs-boy').onmouseenter = () => markCharSel('boy');
   $('cs-girl').onmouseenter = () => markCharSel('girl');
 
+  // ---- the freshman stampede (rare): a callback to study hall ----
+  function maybeStampede() {
+    const run = G.run;
+    if (run.flags.stampedeDone || Math.random() > 0.08) return false;
+    run.flags.stampedeDone = true;
+    later(rand(2.2, 3.5), () => { if (G.locked && G.enemies.filter((e) => !e.dead).length >= 2 && G.mode === 'play') startStampede(); });
+    return true;
+  }
+  function startStampede() {
+    const ltr = Math.random() < 0.5;
+    const x0 = ltr ? -40 : RW + 40, x1 = ltr ? RW + 80 : -80;
+    const lap = actor('laporte', x0, clamp(G.run.player.y, T * 2, RH - T * 2), { speed: 470 });
+    bark(pick(S.stampedeStart), 'shocked', 3.4);
+    sfx.whistle();
+    goTo(lap, x1, lap.y, 470, () => { G.actors = G.actors.filter((a) => a !== lap); });
+    later(1.1, () => {
+      const n = Math.round(14 * Math.max(1, RH / VH));
+      for (let i = 0; i < n; i++) {
+        const y = T * 1.5 + ((i + Math.random() * 0.8) / n) * (RH - T * 3);
+        const f = actor('freshman', x0 - rand(0, 260), y, { speed: rand(300, 400), look: irand(0, 99), say: Math.random() < 0.55 ? pick(S.freshmanLines) : null, phone: Math.random() < 0.7 });
+        goTo(f, x1 - rand(0, 40), y + rand(-20, 20), f.speed, (a) => { G.actors = G.actors.filter((x) => x !== a); });
+      }
+      G.stampede = 3.5; G.stampedeSwept = false;
+      noise(1.6, 0.08, 500);
+      later(3.2, () => { if (!G.actors.some((a) => a.kind === 'freshman')) bark(pick(S.stampedeEnd), 'annoyed', 3.6); else later(1.2, () => bark(pick(S.stampedeEnd), 'annoyed', 3.6)); });
+    });
+  }
+  function updateStampede(dt) {
+    if (!(G.stampede > 0)) return;
+    G.stampede -= dt;
+    if (G.stampede <= 0.6 && !G.stampedeSwept) {
+      // the tail end of the stampede sweeps up any stragglers
+      G.stampedeSwept = true;
+      for (const e of G.enemies) if (!e.dead && e.kind !== 'boss') { floatText(e.x, e.y - 20, 'Swept away!', '#ffffff', 1.2); killEnemy(e); }
+    }
+    G.shake = Math.max(G.shake, 2.5);
+    for (const a of G.actors) {
+      if (a.kind !== 'freshman') continue;
+      if (Math.random() < dt * 10) puff(a.x, a.y + 18, 'rgba(220,210,190,0.7)');
+      for (const e of G.enemies) {
+        if (e.dead || e.kind === 'boss' || e.spawn > 0) continue;
+        if (Math.abs(e.x - a.x) < e.r + 18 && Math.abs(e.y - a.y) < e.r + 26) { floatText(e.x, e.y - 20, 'TRAMPLED!', '#ffffff', 1); killEnemy(e); }
+      }
+    }
+  }
+
   // ---- "SECURITY!" ----
   function maybeSecurity() {
     const run = G.run;
@@ -2080,6 +2175,7 @@
   // ================= update =================
   function updateWorldFx(dt) {
     G.t += dt;
+    if (G.run && G.room) updateCamera(dt);
     if (G.banner) { G.banner.t -= dt; if (G.banner.t <= 0) G.banner = null; }
     if (G.bark) { G.bark.t -= dt; G.bark.age += dt; if (G.bark.t <= 0) G.bark = null; }
     if (G.fade > 0) G.fade -= dt;
@@ -2115,6 +2211,7 @@
     if (G.room !== roomBefore) return;
     updatePets(dt);
     updateActors(dt);
+    updateStampede(dt);
 
     G.hint = nearestObject();
     if (G.hint && (pressed.KeyE || pressed.Enter)) { interact(G.hint); return; }
@@ -2539,6 +2636,18 @@
   }
   function drawActor(a) {
     if (a.kind === 'laporte') return drawLaporte(a);
+    if (a.kind === 'freshman') {
+      const frame = Math.floor(a.walkT * 12) % 2;
+      A.shadow(ctx, a.x, a.y + 18, 12, 4);
+      A.blit(ctx, A.freshmanSprite(a.look, frame), a.x, a.y + (frame ? -2 : 0), a.face < 0);
+      if (a.phone) { ctx.fillStyle = A.OUTLINE; ctx.fillRect(a.x + (a.face < 0 ? -16 : 8), a.y - 2, 8, 11); ctx.fillStyle = Math.floor(G.t * 8 + a.look) % 2 ? '#5dade2' : '#aed6f1'; ctx.fillRect(a.x + (a.face < 0 ? -14 : 10), a.y, 4, 7); }
+      if (a.say) {
+        ctx.font = FONT(900, 13); const w = ctx.measureText(a.say).width + 12;
+        ctx.fillStyle = 'rgba(255,255,255,0.95)'; rr(a.x - w / 2, a.y - 44, w, 20, 6); ctx.fill();
+        ctx.fillStyle = '#1b1430'; ctx.textAlign = 'center'; ctx.fillText(a.say, a.x, a.y - 29);
+      }
+      return;
+    }
     if (a.kind === 'guard') {
       const frame = a.moving ? [1, 0, 2, 0][Math.floor(a.walkT * 9) % 4] : 0;
       A.shadow(ctx, a.x, a.y + 20, 14, 5);
@@ -3014,19 +3123,19 @@
     const room = G.room;
     if (room.type === 'lounge') return;
     const th = G.run.theme;
-    for (const c of [4, 18]) A.drawTorch(ctx, c * T + T / 2, T - 18, G.t, th.light);
-    for (const r of [3, 9]) { A.drawTorch(ctx, 14, r * T + T / 2, G.t + r, th.light); A.drawTorch(ctx, RW - 14, r * T + T / 2, G.t + r * 2, th.light); }
+    for (let c = 4; c < COLS - 2; c += 14) { A.drawTorch(ctx, c * T + T / 2, T - 18, G.t, th.light); A.drawTorch(ctx, (COLS - 1 - c) * T + T / 2, T - 18, G.t + c, th.light); }
+    for (let r = 3; r < ROWS - 2; r += 6) { A.drawTorch(ctx, 14, r * T + T / 2, G.t + r, th.light); A.drawTorch(ctx, RW - 14, r * T + T / 2, G.t + r * 2, th.light); }
   }
   // a faint edge vignette (no fog of war)
   function drawLighting() {
     if (!G.vignette) {
-      G.vignette = document.createElement('canvas'); G.vignette.width = RW; G.vignette.height = RH;
+      G.vignette = document.createElement('canvas'); G.vignette.width = VW; G.vignette.height = VH;
       const vg = G.vignette.getContext('2d');
-      const gr = vg.createRadialGradient(RW / 2, RH / 2, RH * 0.55, RW / 2, RH / 2, RW * 0.72);
+      const gr = vg.createRadialGradient(VW / 2, VH / 2, VH * 0.55, VW / 2, VH / 2, VW * 0.72);
       gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,0.28)');
-      vg.fillStyle = gr; vg.fillRect(0, 0, RW, RH);
+      vg.fillStyle = gr; vg.fillRect(0, 0, VW, VH);
     }
-    ctx.drawImage(G.vignette, 0, 0);
+    ctx.drawImage(G.vignette, Math.round(G.cam.x), Math.round(G.cam.y));
   }
   function drawPsychedelic() {
     if (G.psy <= 0) return;
@@ -3179,8 +3288,10 @@
     ctx.save();
     const sx = G.shake ? rand(-G.shake, G.shake) : 0, sy = G.shake ? rand(-G.shake, G.shake) : 0;
     ctx.translate(sx, HUD + sy);
-    ctx.beginPath(); ctx.rect(-20, 0, RW + 40, RH + 20); ctx.clip();
-    if (G.zoom > 0) { const z = 1 + G.zoom; ctx.translate(RW / 2, RH / 2); ctx.scale(z, z); ctx.translate(-RW / 2, -RH / 2); }
+    ctx.beginPath(); ctx.rect(-20, 0, VW + 40, VH + 20); ctx.clip();
+    if (G.zoom > 0) { const z = 1 + G.zoom; ctx.translate(VW / 2, VH / 2); ctx.scale(z, z); ctx.translate(-VW / 2, -VH / 2); }
+    const cam = G.cam;
+    ctx.translate(-Math.round(cam.x), -Math.round(cam.y));
     if (G.bg) ctx.drawImage(G.bg, 0, 0);
     drawPsychedelic();
     drawZedRings();
@@ -3354,7 +3465,8 @@
       ctx.fillStyle = col; ctx.textAlign = 'left'; ctx.fillText(text, x + 9, HUD + 25);
       x += w + 8;
     };
-    if (skipOn()) badge('TEACHER MODE: problems skipped', '#ff6b6b');
+    if (settings.teacherSkip) badge('TEACHER MODE: answers filled in', '#ff6b6b');
+    else if (run.fun) badge('JUST FOR FUN: answers filled in', '#ffd23f');
     if (run.freeSolves > 0) badge(`🎟 Free solves: ${run.freeSolves}`, '#7fe0d0');
   }
   function drawBanner() {
@@ -3363,7 +3475,7 @@
     const a = Math.min(1, b.t);
     ctx.save();
     ctx.globalAlpha = a;
-    const y = HUD + RH * 0.38;
+    const y = HUD + VH * 0.38;
     const g = ctx.createLinearGradient(0, 0, CW, 0);
     g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(0.2, 'rgba(0,0,0,0.7)'); g.addColorStop(0.8, 'rgba(0,0,0,0.7)'); g.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = g; ctx.fillRect(0, y - 56, CW, b.small ? 92 : 118);
@@ -3489,9 +3601,9 @@
     drawBark();
     drawTalk();
     drawTooltip();
-    if (G.fade > 0) { ctx.fillStyle = `rgba(0,0,0,${Math.min(1, G.fade / 0.3)})`; ctx.fillRect(0, HUD, CW, RH); }
+    if (G.fade > 0) { ctx.fillStyle = `rgba(0,0,0,${Math.min(1, G.fade / 0.3)})`; ctx.fillRect(0, HUD, CW, VH); }
     if (G.flash > 0) { ctx.fillStyle = `rgba(255,255,255,${Math.min(0.9, G.flash)})`; ctx.fillRect(0, 0, CW, CH); }
-    if (G.deathT > 0) { ctx.fillStyle = `rgba(60,0,10,${0.6 * (1 - G.deathT / 1.4)})`; ctx.fillRect(0, HUD, CW, RH); }
+    if (G.deathT > 0) { ctx.fillStyle = `rgba(60,0,10,${0.6 * (1 - G.deathT / 1.4)})`; ctx.fillRect(0, HUD, CW, VH); }
   }
 
   // ================= screens =================
@@ -3516,7 +3628,9 @@
     const run = G.run;
     G.mode = 'end';
     clearInput();
-    if (won) store.del(SAVEKEY); else run.deaths++;
+    if (won) { store.del(SAVEKEY); if (!settings.funUnlocked) { settings.funUnlocked = true; saveSettings(); } } else run.deaths++;
+    $('end-fun-row').classList.toggle('hidden', !won);
+    $('end-fun').checked = !!settings.funMode;
     $('end-title').textContent = won ? '🏆 YOU BEAT THE DISTRIBUTION DUNGEON! 🏆' : 'Defeated!';
     const fctx = $('end-face').getContext('2d');
     A.drawPortrait(fctx, 0, 0, 32, { expr: won ? 'happy' : 'shocked', hair: won ? 0 : 100, t: 2, bg: 'dungeon' });
@@ -3573,6 +3687,8 @@
       r.onchange = () => { settings.mode = m; saveSettings(); renderSettings(); };
     }
     $('set-extra').checked = !!settings.extra;
+    $('set-fun-row').classList.toggle('hidden', !settings.funUnlocked);
+    $('set-fun').checked = !!settings.funMode;
     $('set-sound').checked = !!settings.sound;
   }
   $('set-extra').onchange = (e) => { settings.extra = e.target.checked; saveSettings(); };
@@ -3590,6 +3706,7 @@
     audio();
     G.run = newRunState();
     G.run.name = settings.name || '';
+    G.run.fun = !!(settings.funUnlocked && settings.funMode);
     G.actors = []; G.texts = []; G.particles = []; G.deathT = 0; G.shake = 0; G.psy = 0; G.talk = null; G.bark = null; G.cut = null;
     if (G.startWithEdamame) { const it = itemById('edamame'); G.run.items.push('edamame'); it.apply(G.run.player); }
     const sf = clamp(Number(settings.startFloor) || 1, 1, 5);
@@ -3676,6 +3793,8 @@
   }
   $('end-retry').onclick = () => { if (G.floorSave) retryFloor(); };
   $('end-again').onclick = () => startRun();
+  $('end-fun').onchange = (e) => { settings.funMode = e.target.checked; saveSettings(); };
+  $('set-fun').onchange = (e) => { settings.funMode = e.target.checked; saveSettings(); };
   $('end-title-btn').onclick = () => { G.mode = 'title'; G.run = null; G.room = null; refreshTitle(); showScreen('title'); };
 
   // ================= debug helpers =================
@@ -3695,6 +3814,7 @@
     skipTalk() { if (G.talk) finishTalk(); },
     curProblem() { return M.obj && M.obj.problem; },
     hurt() { hurtPlayer('test'); },
+    startStampede,
     sectionFor,
     openTest(sec) { const o = { kind: 'chest', x: 0, y: 0 }; settings.mode = 'mixed'; o.problem = PR.generate(sec, {}); o.pst = { wrong: 0, hints: 0, revealed: false, sel: {} }; openProblem(o, { icon: '🔒', title: 'Stat Chest', reward: 'Reward: test', onSolve: () => {} }); },
   };

@@ -150,7 +150,7 @@
     for (let y = 2; y < 15; y++) for (let x = 0; x < 32; x++) {
       const dx = Math.abs(x + 0.5 - 16);
       const inHair = (dx / 9.6) ** 2 + ((y + 0.5 - 14) / 11) ** 2 <= 1;
-      const hairline = dx < 1.5 ? 9 : dx < 2.5 ? 7 : dx < 3.5 ? 5 : dx < 6.5 ? 4 : dx < 7.5 ? 6 : 12;
+      const hairline = dx < 2 ? 7 : dx < 3 ? 6 : dx < 4 ? 5 : dx < 6 ? 4 : dx < 7 ? 6 : 12;
       if (!inHair || y >= hairline) continue;
       const side = clamp((dx - 1) / 7, 0, 1);
       const low = clamp((y - 2) / 10, 0, 1);
@@ -243,7 +243,7 @@
       if (e <= 1) set(x, y, e > 0.7 && x + 0.5 > 16 ? skinSh : skin);
     }
     set(16, 15, skinSh); set(16, 16, skinSh); set(15, 17, skinSh); set(16, 17, skinSh);
-    const stub = (x, y) => set(x, y, (x + y) % 2 ? '#c29a7a' : '#d3ad8c');
+    const stub = (x, y) => set(x, y, (x + y) % 2 ? '#a07a5e' : '#b88f70');
     for (let x = 13; x <= 18; x++) if ((x + 18) % 2 === 0) stub(x, 18);
     for (let x = 12; x <= 19; x++) stub(x, 19);
     stub(12, 20); stub(12, 21); stub(19, 20); stub(19, 21); stub(13, 21); stub(18, 21); stub(15, 21); stub(16, 21);
@@ -380,7 +380,7 @@
   // Mr. Laporte, front view (14 x 23), legs drawn separately for the walk cycle
   const LAP_TOP = [
     '....iihhii....',
-    '...hhhhhhhh...',
+    '...hhkhhkhh...',
     '..Hhkkhhkkhh..',
     '..Hkkkhhkkkh..',
     '..skkkkkkkks..',
@@ -1069,9 +1069,35 @@
     }));
   }
 
+  // Freshmen for the study-hall stampede (a callback to Study Hall Simulator)
+  const FRESH_TOP = [
+    '..hhhhhh..',
+    '.hhhhhhhh.',
+    '.hkkkkkkh.',
+    '.kkekkekk.',
+    '..kkmmkk..',
+    '.ssssssss.',
+    'ssssssssss',
+    'kssSssSssk',
+    'k.ssssss.k',
+    '..jjjjjj..',
+  ];
+  const FRESH_LEGS = [['..jj..jj..', '..oo..oo..'], ['.jj....jj.', 'oo......oo']];
+  const FRESH_HAIR = ['#2b1d14', '#6b4423', '#c9a24a', '#111111', '#8a3b1e', '#4a2e17'];
+  const FRESH_SKIN = [['#f6cfa6', '#e2ae88'], ['#dfae86', '#c48f68'], ['#b07a52', '#93623e'], ['#7a5236', '#5f3f28']];
+  const FRESH_SHIRT = ['#e74c3c', '#3498db', '#2ecc71', '#9b59b6', '#f39c12', '#1abc9c', '#e84393', '#34495e'];
+  function freshmanSprite(look, frame) {
+    const i = look % 48;
+    return cached('fresh' + i + frame, () => {
+      const [k] = FRESH_SKIN[i % 4];
+      const shirt = FRESH_SHIRT[Math.floor(i / 4) % 8];
+      return fromRows(FRESH_TOP.concat(FRESH_LEGS[frame]), { h: FRESH_HAIR[(i * 7) % 6], k, e: '#1b1b1b', m: '#7a3a2a', s: shirt, S: shade(shirt, -0.25), j: '#3b4a74', o: '#e9e9ef' }, 3);
+    });
+  }
+
   DQ.Art = {
     OUTLINE, TAU, painter, bake, sprite, fromRows, cached, blit, shadow, glow, shade, tones, rrect,
-    drawPortrait, buildFace, laporteSprite, drawManeSprite, heroSprite, guardSprite, subSprite, knightSprite, spiderSprite,
+    drawPortrait, buildFace, laporteSprite, drawManeSprite, heroSprite, guardSprite, subSprite, knightSprite, spiderSprite, freshmanSprite,
     slimeSprite, batSprite, ghostSprite, archerSprite, boarSprite, eyeSprite,
     coinSprite, heartSprite, edamameSprite, beanSprite, chestSprite,
     bosses: { rankenstein, monolith, zed, bell, emperor },
